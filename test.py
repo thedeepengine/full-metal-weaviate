@@ -1,4 +1,117 @@
+import os
 import unittest
+from weaviate import WeaviateClient
+from weaviate.connect import ConnectionParams
+from weaviate.auth import AuthApiKey
+import weaviate.classes as wvc
+from weaviate.classes.config import Property, DataType, ReferenceProperty, Configure, Tokenization
+
+# import os
+# os.chdir('/Users/paulhechinger/22full-metal-weaviate')
+
+class_test_clt = client_weaviate.collections.create(
+    name='ClassTest',
+    properties=[
+        Property(name="name", data_type=DataType.TEXT),
+        Property(name="body", data_type=DataType.TEXT)
+    ],
+    vectorizer_config=[Configure.NamedVectors.none(name="name")])
+
+method_test_clt = client_weaviate.collections.create(
+    name='MethodTest',
+    properties=[
+        Property(name="name", data_type=DataType.TEXT),
+        Property(name="signature", data_type=DataType.TEXT)
+    ])
+
+attribute_test_clt = client_weaviate.collections.create(
+    name='AttributeTest',
+    properties=[
+        Property(name="name", data_type=DataType.TEXT),
+        Property(name="value", data_type=DataType.TEXT)
+    ])
+
+class_test_clt.config.add_reference(ReferenceProperty(name="hasMethod",target_collection='MethodTest'))
+class_test_clt.config.add_reference(ReferenceProperty(name="hasAttribute",target_collection='AttributeTest'))
+method_test_clt.config.add_reference(ReferenceProperty(name="hasClass",target_collection='ClassTest'))
+attribute_test_clt.config.add_reference(ReferenceProperty(name="hasClass",target_collection='ClassTest'))
+
+
+
+######### test weaviate client
+
+client_weaviate=get_weaviate_client('localhost')
+client=metal(client_weaviate)
+
+
+
+######## test metal_load
+class_clt=client.get_metal_collection('ClassTest')
+
+# register opposite references
+opposite_refs = ['Employee.hasDepartment<->Department.hasEmployee',
+                 'ClassTest.hasAttribute<->AttributeTest.hasClass']
+
+
+opposite_refs = ['ffdsfs']
+# node_col.config.add_reference(ReferenceProperty(name="instanceOf",target_collection=classname))
+
+register_opposite(client,opposite_refs)
+
+
+######## full update
+
+client_weaviate=get_weaviate_client('localhost')
+client=metal(client_weaviate)
+
+
+
+
+class_clt.metal_load({'name': 'testName'})
+
+col=class_clt
+self=class_clt
+to_load={'name': 'testName'}
+new_uuid,obj = list(zip(uuids,ready_obj_copy))[0]
+
+
+class_clt.q('uuid=7286e319-7a09-43d3-997e-37ef43629fd2')
+class_clt.q('name=testName')
+
+
+def parent(value):
+    try:
+        v = f(value)
+        return value
+    except Exception as e:
+        console.print(str(e))
+        # raise e
+    
+def f(value):
+    print('do stuff')
+    if value == 2:
+        raise Exception('[bold red]dsfdsfdfds:[/] mfs')
+
+parent(2)
+
+
+data = {
+    'A': [10, 20, 10, 30],
+    'B': [20, 30, 20, 40]
+}
+df = pd.DataFrame(data)
+
+# Using .query() to filter data
+filtered_df = df.query('A==10&B==20')
+print(filtered_df)
+
+
+
+
+
+######## test metal_query
+
+
 
 single_level_dict = {
     "id": 1,

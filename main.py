@@ -1,400 +1,156 @@
-import re
 import jmespath
-from functools import reduce
-from weaviate.classes.query import MetadataQuery, Filter, QueryReference
-from weaviate.exceptions import WeaviateBaseError
-from types import FunctionType
+import os
+import weakref
+from types import MethodType
+from itertools import zip_longest
+from rich.console import Console
+from weaviate import WeaviateClient
+from weaviate.connect import ConnectionParams
+from weaviate.auth import AuthApiKey
 
-from app.app_instance import get_weaviate_context
+from weaviate_op import metal_query,metal_load,batch_load
+from container_op import __
+from exception_helper import noOppositeFound
 
-WEAVIATE_CONTEXT = get_weaviate_context()
+console = Console()
 
-OPERATORS = {
-    '!=': 'not_equal',
-    '=': 'equal',
-    '<': 'less_than',
-    '>': 'greater_than',
-    '<=': 'less_or_equal',
-    '>=': 'greater_or_equal',
-    '~': 'like',
-    'any': 'any',
-    'all': 'all',
-}
+def metal(client_weaviate):
+    client_weaviate.get_metal_collection = MethodType(get_metal_collection, client_weaviate)
+    return client_weaviate
 
-def q(self,filters_str=None,return_fields=None,context={},limit=100,include_vector=False,return_raw=False,with_metadata=False):
-    filters=translate_filters(self.name,filters_str,context)
-    return_properties, return_references=translate_return_fields(return_fields)
-
-    res = self.query.fetch_objects(
-        filters=filters,
-        return_properties=return_properties,
-        return_references=return_references,
-        include_vector=include_vector,
-        limit=limit)
-    if not return_raw:
-        res = extract_object(res, include_vector, with_metadata)
-        if len(res) == 1 and hasattr(filters, 'model_dump') and filters.model_dump()['operator'] == 'Equal':
-            res = res[0]
-    return res
-
-def extract_object(res, include_vector=False, with_metadata=False):
-    # input_string = "hasChildren:name,surname;hasChildren:name"
-    def recursive_extract(item):
-        result = {
-            'uuid': str(item.uuid),
-            'properties': item.properties            
-        }
-        if item.references:
-            result['references'] = {}
-            for k, v in item.references.items():
-                result['references'][k] = [recursive_extract(j) for j in v.objects]
-        
-        if with_metadata and hasattr(item, 'metadata'):
-            if hasattr(item.metadata, 'distance'):
-                if item.metadata.distance != None:
-                    result['metadata'] = {'distance': item.metadata.distance}
-            if hasattr(item.metadata, 'score'):
-                if item.metadata.score != None:
-                    result['metadata'] = {'score': item.metadata.score}
-
-        if include_vector and hasattr(item, 'vector'):
-            result['vector'] = item.vector
-
-        return result
-
-    return [recursive_extract(i) for i in res.objects]
-
-def translate_return_fields(return_fields):
-    if return_fields == None:
-        return None, None
-    top_split = return_fields.split(';;')
-    if len(top_split) == 2:
-        top_properties, nested_segments = top_split
-        top_properties = [prop.strip() for prop in top_properties.split(',')]
+def get_metal_collection(self,name,force_reload=False):
+    if not force_reload and name in getattr(self,'metal_collection',[]):
+        return getattr(self,'metal_collection')[name]
     else:
-        if ':' not in top_split[0]:
-            top_properties = [prop.strip() for prop in top_split[0].split(',')]
-            nested_segments = None
-            all_references = None
+        col = self.collections.get(name)
+        if is_clt_existing(col):
+            col.client_parent=weakref.ref(self)
+            col.metal_context=set_weaviate_context(self)
+            col.q = MethodType(metal_query, col)
+            col.metal_query = MethodType(metal_query, col)
+            col.get_opposite = MethodType(get_opposite, col)
+            col.register_opposite_ref = MethodType(register_opposite_ref, col)
+            col.batch_load = MethodType(batch_load, col)
+            col.l = MethodType(metal_load, col)
+            col.metal_load = MethodType(metal_load, col)
+            if not hasattr(self, 'metal_collection'):
+                setattr(self, 'metal_collection', {})
+            getattr(self, 'metal_collection')[name] = col
+            return col
         else:
-            top_properties = None
-            nested_segments = top_split[0]
-    
-    if nested_segments != None:
-        all_references = []
-        all_paths = nested_segments.split('|')
-        for path in all_paths:
-            levels = path.split(';')
-            levels.reverse()
-            current_reference = None
-            for level in levels:
-                if ':' in level:
-                    link_on, properties = level.split(':')
-                    properties_list = [p.strip() for p in properties.split(',')]
-                else:
-                    link_on = level.strip()
-                    properties_list = []
-                current_reference = QueryReference(link_on=link_on, return_properties=properties_list, return_references=current_reference)
-            all_references.append(current_reference)
-        
-    return top_properties, all_references
+            console.print("[bold red]Error:[/] [underline]Collection does not exist/typo: {}".format(name))
 
-# def get_query_reference():
-
-def get_ref_prop(obj, ref_name, spec_prop = None):
-    objs = obj.references[ref_name].objects if ref_name in obj.references else []
-    if spec_prop != None:
-        prop = [i.properties[spec_prop] for i in objs]
+def get_opposite(self, key=None):
+    if key == None:
+        return jmespath.search(f'ref_target.{self.name}', self.metal_context) 
     else:
-        prop = [i.properties for i in objs]
-    return prop
-
-def get_ref_prop2(obj, ref_name, spec_prop = None):
-    objs = obj.objects[0].references[ref_name].objects if ref_name in obj.objects[0].references else []
-    if spec_prop != None:
-        prop = [i.properties[spec_prop] for i in objs]
-    else:
-        prop = [i.properties for i in objs]
-    return prop
-
-def get_ontology_uuid(name):
-    ontology_obj = ontology.query.fetch_objects(filters=Filter.by_property("name").equal(name))
-    if len(ontology_obj.objects) == 1:
-        uuid = str(ontology_obj.objects[0].uuid)
-    else:
-        raise Exception("ontology matching issue")
-
-    return uuid
-
-
-class Filter2:
-    @staticmethod
-    def by_property(prop):
-        class PropertyFilter:
-            def equal(self, value):
-                if prop == 'uuid':
-                    return Filter.by_id().equal(value)
-                return Filter.by_property(prop).equal(value)
-            def less_than(self, value):
-                return Filter.by_property(prop).less_than(value)
-            def less_or_equal(self, value):
-                return Filter.by_property(prop).less_or_equal(value)
-            def greater_than(self, value):
-                return Filter.by_property(prop).greater_than(value)
-            def greater_or_equal(self, value):
-                return Filter.by_property(prop).greater_or_equal(value)
-            def like(self, pattern):
-                return Filter.by_property(prop).like(pattern)
-            def any(self, values):
-                if prop == 'uuid':
-                    return Filter.by_id().contains_any(values)
-                return Filter.by_property(prop).contains_any(values)
-            def all(self, values):
-                return Filter.by_property(prop).contains_all(values)
-        return PropertyFilter()
-
-def get_ref_filter(col_name,prop, op, value):
-    prop_names, ref_names = WEAVIATE_CONTEXT['var_names'][col_name].values()
-    temp_filter = Filter
-    refs = prop.split('.')[:-1]
-    prop = prop.split('.')[-1]
-    check_refs = all([i in ref_names for i in refs])
-    check_prop = prop in prop_names+['uuid']
-    if check_refs and check_prop:
-        for i in refs:
-            temp_filter = temp_filter.by_ref(link_on=i)
-        if prop == 'uuid':
-            temp_filter = temp_filter.by_id()
+        opposite=jmespath.search(f'ref_target.{self.name}.{key}.opposite', self.metal_context)
+        if opposite == None:
+            raise Exception(noOppositeFound)
         else:
-            temp_filter = temp_filter.by_property(prop)
-        temp_filter = getattr(temp_filter, OPERATORS[op])
-        temp_filter = temp_filter(value)
-    else:
-        raise Exception('columns wrong')
-    return temp_filter
+            return opposite
 
-def translate_filters(col_name,filters_str,context = {}):
-    if filters_str is None:
-        return None
-    conditions = re.findall(r'([a-zA-Z0-9_.]+)\s*(!=|=|<=|<|>=|>|~|any|all)\s*([^&]*)', filters_str)
+def set_weaviate_context(client_weaviate):
+    all_schema = client_weaviate.collections.list_all(simple=False)
+    fields={k: {'properties': [i.name for i in v.properties], 'references': [i.name for i in v.references]} for k,v in all_schema.items()}
+    types={k: {i.name:i.data_type.name for i in v.properties} for k,v in all_schema.items()}
+    ref_target={k: {i.name:{'target_clt':i.target_collections[0]} for i in v.references} for k,v in all_schema.items()}
+    return {'fields': fields, 'types': types, 'ref_target': ref_target}
 
-    filter_objects = []
-    for prop, op_symbol, value_placeholder in conditions:
-        if value_placeholder in context:
-            value = context[value_placeholder]
-        else:
-            prop_ref = prop.split('.')[-1]
-            if WEAVIATE_CONTEXT['types'][col_name].get(prop_ref, '') == 'NUMBER':
-                value = float(value_placeholder)
-            else:
-                value = value_placeholder
+def register_opposite_ref(self,source_ref,opposite_ref):
+    self.metal_context['ref_target'][self.name][source_ref]['opposite'] = opposite_ref
+    opposite_clt_name = self.metal_context['ref_target'][self.name][source_ref]['target_clt']
+    opposite_clt=self.client_parent().get_metal_collection(opposite_clt_name)
+    opposite_clt.metal_context['ref_target'][opposite_clt_name][opposite_ref]['opposite'] = source_ref
 
-        if '.' in prop:
-            ref_filter = get_ref_filter(col_name, prop, op_symbol, value)
-            filter_objects.append(ref_filter)
-        else:
-            property_filter = Filter2.by_property(prop)
-            operation = getattr(property_filter, OPERATORS[op_symbol])
-            filter_objects.append(operation(value))
+def extract_opposite_refs(pattern):
+    try:
+        parts = [i.split('.') for i in pattern.split('<>')]
+        clt_source = parts[0][0]
+        rel_source = parts[0][1]
+        clt_target = parts[1][0]
+        rel_target = parts[1][1]
+        return {'clt_source':clt_source,'rel_source':rel_source,'clt_target':clt_target,'rel_target':rel_target}
+    except Exception:
+        raise Exception('[bold yellow]Error:[/] Register opposite relationship with format: collectionName.reference<>collectionName.reference')
+        # print('register opposite relationship with format: collectionName.reference<->collectionName.reference')
+        # console.log(log_locals=True)
 
-    if len(filter_objects) > 1:
-        return reduce(lambda x, y: x & y, filter_objects)  # Combining using & operator
-    elif filter_objects:
-        return filter_objects[0]
-    else:
-        return None
+def is_clt_existing(clt):
+    try:
+        clt.config.get()
+        return True
+    except Exception as e:
+        return False
 
-####################################################################################
-####################################################################################
-############################ WEAVIATE HEAVY COLLECTION MODIFS 
+def is_metal_client(client):
+    return hasattr(client, 'get_metal_collection')
 
-## Add propety to collection
-def add_property_to_collection(collection, prop_name):
-    echart_col = client_weaviate.collections.get(ECHART_CLASSNAME)
-    echart_col.config.add_property(Property(name="lir",data_type=DataType.TEXT))
+def is_metal_collection(clt):
+    return hasattr(clt, 'metal_context')
 
-
-####################################################################################
-####################################################################################
-############################ DICT OPERATIONS #######################################
-
-class _:
-    def __init__(self, data):
-        self.data = data
-        self.mode = 'full'
-        self.nestedtemp = False
-
-    @property
-    def inplace(self): # inplace not working
-        self.mode = 'inplace'
-        return self
-
-    @property
-    def full(self):
-        self.mode = 'full'
-        return self
-
-    @property
-    def modified(self):
-        self.mode = 'modified'
-        return self
-
-    @property
-    def nested(self):
-        self.nestedtemp = True
-        return self
-    
-    def get(self, fields, names = {}, pattern =''):
-        if type(fields) == str:
-            fields = [fields]
-        if isinstance(self.data, dict):
-            if isinstance(fields, FunctionType):
-                return dict(filter(fields, self.data.items()))
-            return {k:v for k,v in self.data.items() if k in fields}
-        if isinstance(self.data, list):
-            if self.nestedtemp == True:
-                return [_(i).nested_to_flat(fields, pattern=pattern, names=names) for i in self.data]
-            res = [{k:v for k,v in i.items() if k in fields} for i in self.data]
-            if len(fields) == 1:
-                res = [i[fields[0]] for i in res]
-            return res
-
-    def remove(self, fields):
-        if type(fields) == str:
-            fields = [fields]
-        if isinstance(self.data, dict):
-            return {k:v for k,v in self.data.items() if k not in fields}
-        if isinstance(self.data, list):
-            res = [{k:v for k,v in i.items() if k not in fields} for i in self.data]
-            return res
-
-    def apply(self, func, fields):
-        # case apply recursively to a nested property
-        if type(fields) == str:
-            fields = [fields]
-        if isinstance(self.data, dict):
-            raise Exception('object should be an array to apply function on')
-        
-        if isinstance(self.data[0], dict): # TODO: to be improved as it just check if first item is a dict
-            # if '.' in fields:
-            #     nesting = fields.split('.')
-            res = [{k: (func(v) if k in fields else v) for k, v in i.items()} for i in self.data]
-
-            if self.mode == 'full':
-                return res
-            elif self.mode == 'modified':
-                return [{k: v for k, v in row.items() if k in fields} for row in res]
-            elif self.mode == 'inplace':
-                self.data = res
-                return self.data
-            return
-        else: # for any other type than a dict
-            res = [func(i) for i in self.data]
-            return res
-
-    def nested_to_flat(self,keys_to_capture,pattern='references.hasChildren',acc_id=None,delete_pattern=False,names={},temp_keep_format=False):
-        pattern_split = pattern.split('.')
-        if keys_to_capture == '*':
-            keys_to_capture = list(set(list(self.data.keys())) - set([pattern[0]]))
-        if isinstance(keys_to_capture, str):
-            keys_to_capture = [keys_to_capture]
-
-        def rget(data, keys):
-            def safe_get(acc, key):
-                if isinstance(acc, list):
-                    return [safe_get(item, key) for item in acc]
-                return acc.get(key, None) if isinstance(acc, dict) else None
-            return reduce(safe_get, keys, data)
-
-        def get_level(data, keys_to_capture):
-            level_data = [rget(data, key.split('.')) for key in keys_to_capture]
-            zipped = [(x, y) for x, y in zip(keys_to_show, level_data) if y is not None]
-            return dict(zipped)
-
-        def all_levels(data, keys_to_capture, acc_id,acc_id_value):
-            if len(data) == 0:
-                return []
-            # keys_to_capture = [pattern+'.'+i for i in keys_to_capture]
-            r = get_level(data, keys_to_capture)
-            results = [r] if len(r) > 0 else []
-            if acc_id:
-                acc_id_value='.'.join([acc_id_value, results[0][acc_id]])
-                results[0]['acc_id']=acc_id_value
-            children = rget(data, pattern_split)
-            if isinstance(children, list):
-                for child in children:
-                    res = all_levels(child,keys_to_capture,acc_id,acc_id_value)
-                    if len(res) > 0 and len(res[0]) > 0:
-                        results.extend(res)
-            return results
-
-        def keys_to_show_strategy(keys_to_capture, names):
-            keys_to_capture = [names.get(item, item) for item in keys_to_capture]
-            keys_to_capture_end = [i.split('.')[-1] for i in keys_to_capture]
-            all_distinct = len(keys_to_capture_end) == len(set(keys_to_capture_end))
-            if all_distinct:
-                keys_to_show = keys_to_capture_end
-            else:
-                keys_to_show = keys_to_capture
-            return keys_to_show
-
-        keys_to_show = keys_to_show_strategy(keys_to_capture, names)
-
-        res = all_levels(self.data, keys_to_capture, acc_id, '')
-        if temp_keep_format == False and len(res) == 1:
-            return res[0]
-        return res
-    
-    def extract_nested(self, path):
-
-        def extract(data, path):
-            keys = path.split('.')
-            print(keys)
-            for key in keys:
-                if isinstance(data, list):
-                    print(data)
-                    data = [extract(item, keys[0]) for item in data if keys[0] in item]
-                elif isinstance(data, dict):
-                    if key == '*':
-                        data = extract(jmespath.search('*', data)[0], '.'.join(keys[1:]))
+def register_opposite(client,opposite_refs):
+    try:
+        buffer_clt = {}
+        formatted_opposite=[extract_opposite_refs(i) for i in opposite_refs]
+        for opposite_ref in formatted_opposite:
+            clt_source_name=opposite_ref['clt_source']
+            clt_target_name=opposite_ref['clt_target']
+            for clt_name in [clt_source_name,clt_target_name]:
+                if clt_name not in buffer_clt:
+                    clt=client.get_metal_collection(clt_name)
+                    if is_clt_existing(clt): 
+                        buffer_clt[clt_name] = clt
                     else:
-                        print('key', key)
-                        data = data.get(key, None)
-                else:
-                    return data
-            return data
+                        console.print("[bold red]Error:[/] [underline]Most likely collection does not exist or typo: {}".format(clt_source_name))
+                        raise
 
-        if isinstance(self.data, list):
-            return [extract(item, path) for item in self.data]
-        return extract(self.data, path)
+            buffer_clt[clt_source_name].register_opposite_ref(opposite_ref['rel_source'],opposite_ref['rel_target'])
+    except Exception as e:
+        str_e = str(e)
+        if str_e.startswith('[bold yellow]'):
+            console.print(str(e))
+        else:
+            console.print_exception(show_locals=True)
+            console.print(str(e))
+    finally:
+        if len(buffer_clt) > 0:
+            for k,v in buffer_clt.items():
+                print(k, v.get_opposite())
 
-    @staticmethod
-    def aggregate_and_rename(key, value):
-        new_key = 'children'
-        aggregated_value = []
-        for sub_key, sub_value in value.items():
-            if isinstance(sub_value, list):
-                aggregated_value.extend(sub_value)
-        return new_key, aggregated_value
+def get_weaviate_client(weaviate_client_url):
+    api_key_weaviate=os.getenv('AUTHENTICATION_APIKEY_ALLOWED_KEYS')
 
-    def apply_to_nested(self, target_key, transform_func=None):
-        if transform_func is None:
-            transform_func = self.aggregate_and_rename
+    client = WeaviateClient(
+    connection_params=ConnectionParams.from_params(
+        # http_host="localhost",
+        http_host=weaviate_client_url,
+        http_port="8080",
+        http_secure=False,
+        # grpc_host="localhost",
+        grpc_host=weaviate_client_url,
+        grpc_port="50051",
+        grpc_secure=False,
+    ),
+    auth_client_secret=AuthApiKey(api_key_weaviate))
 
-        def recurse(data, target_key):
-            if isinstance(data, dict):
-                new_data = {}
-                for key, value in data.items():
-                    if key == target_key:
-                        new_key, new_value = transform_func(key, value)
-                        new_data[new_key] = new_value
-                    else:
-                        new_data[key] = recurse(value, target_key)
-                return new_data
-            elif isinstance(data, list):
-                return [recurse(item, target_key) for item in data]
-            else:
-                return data
+    client.connect()
+    return client
 
-        self.data = recurse(self.data, target_key)
-        return self.data
+
+# def batch_load(self,props=[],refs=[],vectors=[]):
+#     assert all(item in self.metal_context['fields'][self.name]['properties'] for item in props.keys()) 
+#     uuids = []
+#     with self.batch.dynamic() as batch:
+#         for prop, ref, vector in zip_longest(props, refs, vectors, fillvalue=None):
+#             uuids.append(batch.add_object(properties=prop,references=ref,vector=vector))
+
+#     failed_objs_a = self.batch.failed_objects
+#     failed_refs_a = self.batch.failed_references
+#     number_errors = batch.number_errors
+#     if number_errors>=1:
+#         print('number_errors', number_errors)
+#         print('messages: ', [i.message for i in failed_objs_a])
+#         return {'failed_objs_a': failed_objs_a, 'failed_refs_a': failed_refs_a}
+#     uuids = [str(uuid) for uuid in uuids]
+#     return uuids
