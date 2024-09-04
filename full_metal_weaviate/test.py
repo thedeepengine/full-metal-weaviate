@@ -42,8 +42,8 @@ attribute_test_clt.config.add_reference(ReferenceProperty(name="hasClass",target
 
 ######### test weaviate client
 
-opposite_refs = ['Employee.hasDepartment<->Department.hasEmployee',
-                 'ClassTest.hasAttribute<->AttributeTest.hasClass']
+opposite_refs = ['Employee.hasDepartment<>Department.hasEmployee',
+                 'ClassTest.hasAttribute<>AttributeTest.hasClass']
 
 client_weaviate=get_weaviate_client('localhost')
 client=metal(client_weaviate, opposite_refs)

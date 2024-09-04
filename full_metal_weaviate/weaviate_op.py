@@ -1,31 +1,58 @@
 import re
-from functools import reduce
+from functools import reduce,wraps
 from types import FunctionType
 import pandas as pd
 import copy
 import random
 from collections import defaultdict
 from rich.console import Console
+from rich.traceback import install
 from weaviate.classes.query import MetadataQuery, Filter, QueryReference
 from weaviate.exceptions import WeaviateBaseError
 from weaviate.util import generate_uuid5,get_valid_uuid
 from rich.table import Table
+
 
 from full_metal_weaviate.container_op import __
 
 console = Console()
 
 
-
-
-
 def metal_load(self,to_load,dry_run=True):
-    resolved_load=resolve_load(self,to_load)
-    if dry_run:
-        return resolved_load
-    else:
-        uuids=resolve_ref_uuid_and_metal_load(self,resolved_load)
-    return uuids
+    try:
+        self.client_parent().init_metal_batch()
+        resolved_load=resolve_load(self,to_load)
+        if dry_run:
+            return resolved_load
+        else:
+            uuids=resolve_ref_uuid_and_metal_load(self,resolved_load)
+            # a = {'fff': 2}
+            # a['l']
+        return uuids
+    except Exception as e:
+        console.print_exception(extra_lines=5,show_locals=True)
+        console.print('\n----------[bold blue] Exception Raised Triggered Metal Rollback[/] --------------\n')
+        if (objs:=self.client_parent().current_transaction_object):
+            uuids=__(objs).get(['uuid'])
+            self.data.delete_many(where=Filter.by_id().contains_any(uuids))
+            console.print(f'[magenta]Deleting {len(uuids)} object(s)')
+
+        if (refs:=self.client_parent().current_transaction_reference):
+            grouped_ref = defaultdict(list)
+            for item in refs:
+                grouped_ref[item.get("clt_name")].append(item.get("ref"))
+            for clt_name,ref in grouped_ref:
+                clt=self.client_parent().get_metal_collection(clt_name)
+                delete_many_refs(clt,ref)
+
+            console.print(f'[magenta]Deleting {len(refs)} reference(s)')
+
+def delete_many_refs(clt, refs):
+    # try:
+    for i in refs:
+        clt.data.reference_delete(from_uuid=i['from_uuid'],from_property=i['from_property'],to=i['to'])
+    # except Exception as e:
+    #     print(e)
 
 def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,include_vector=False,return_raw=False,with_metadata=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
     try:
@@ -90,10 +117,13 @@ def get_ref_filter(self,prop, op, value):
         missing_prop = [i for i in prop_names+['uuid'] if i not in prop_names+['uuid']]
         raise Exception('[bold red]Fields missing or typoed[/]: [underline]'+ ','.join(missing_ref+missing_prop)+'[/]'+
                          '\n[bold red]Existing fields[/]: [underline]'+ ', '.join(prop_names+ref_names))
-    
+
 def translate_filters(self,filters_str,context = {}):
     if filters_str is None:
         return None
+    if is_uuid_valid(filters_str):
+        filters_str=f'uuid={filters_str}'
+
     conditions = re.findall(r'([a-zA-Z0-9_.]+)\s*(!=|=|<=|<|>=|>|~|any|all)\s*([^&]*)', filters_str)
 
     filter_objects = []
@@ -167,7 +197,7 @@ def resolve_ref_uuid_and_metal_load(col,ready_objs):
     to_load_opp_refs=__(ready_objs_copy).apply(lambda x:x['opp_refs'])
     to_load_opp_refs=[j for i in to_load_opp_refs for j in i]
     if len(to_load_opp_refs) > 0:
-        group_opp_ref_and_batch_load_ref(col,to_load_opp_refs)
+        group_opp_ref_and_load_ref(col,to_load_opp_refs)
     return uuids
 
 
@@ -231,7 +261,10 @@ def batch_load_object(clt, objs):
     uuids = []
     with clt.batch.dynamic() as batch:
         for obj in objs:
+            if all(obj.get(key) is None for key in ['prop', 'ref','vector']):
+                raise Exception('all keys are None for batch load object')
             temp_uuid=batch.add_object(properties=obj.get('prop'),references=obj.get('ref'),vector=obj.get('vector'))
+            clt.client_parent().append_transaction(clt.name,temp_uuid,'object')
             uuids.append(temp_uuid)
     show_batch_error(clt,batch)
     return uuids
@@ -242,6 +275,7 @@ def batch_load_references(clt, refs):
     with clt.batch.dynamic() as batch:
         for ref in refs:
             batch.add_reference(from_uuid=ref['from_uuid'],from_property=ref['from_property'],to=ref['to'])
+            clt.client_parent().append_transaction(clt.name,ref,'reference')
     show_batch_error(clt,batch)
     
 def show_batch_error(clt,batch):
@@ -274,36 +308,7 @@ def show_batch_error(clt,batch):
                 table.add_row(str(error.object_.properties),error.message)
             console.print(table)
 
-# def batch_load(self,objs):
-#     # assert all(item in self.metal_context['fields'][self.name]['properties'] for item in props.keys()) 
-#     uuids = []
-#     buffer_clt={}
-#     prop_names, ref_names = self.metal_context['fields'][self.name].values()
-
-#     obj_types=[check_naming(list(i.keys()),prop_names,ref_names) for i in objs]
-    
-#     props=[o for o,t in zip(objs,obj_types) if t == 'prop']
-#     refs=[o for o,t in zip(objs,obj_types) if t == 'ref']
-#     vector=[i.get('vector') for i in props]
-#     props=[{k: v for k, v in prop.items() if k != 'vector'} for prop in props]
-
-#     if len(props) > 0:
-#         uuids=batch_load_object(self,objs)
-#         uuids=[str(uuid) for uuid in uuids]
-
-#     if len(refs) > 0:
-#         group_by_clt=group_by_meta(refs)
-#         for group in group_by_clt:
-#             group_refs=[i['ref'] for i in group]
-#             clt_name=group[0]['$metal_meta$']['from_clt']
-#             from_clt=buffer_clt.get(clt_name, self.client_parent().get_metal_collection(clt_name))
-#             if clt_name not in buffer_clt:
-#                 buffer_clt[clt_name]=from_clt
-#             batch_load_references(from_clt,group_refs)
-
-#     return uuids
-
-def group_opp_ref_and_batch_load_ref(col,refs):
+def group_opp_ref_and_load_ref(col,refs):
     buffer_clt={}
     group_by_clt=group_by_meta(refs)
     for group in group_by_clt:
@@ -423,6 +428,34 @@ def extract_object(res, include_vector=False, with_metadata=False):
         return result
 
     return [recursive_extract(i) for i in res.objects]
+
+
+class WeaviateTransaction:
+    def __init__(self, client):
+        self.client = client
+        self.uuids = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.rollback()
+        else:
+            self.commit()
+
+    def add_data(self, data):
+        uuid = self.client.add(data)
+        self.uuids.append(uuid)
+        return uuid
+
+    def rollback(self):
+        for uuid in self.uuids:
+            self.client.delete(uuid)
+        console.print("Rolled back all changes.")
+
+    def commit(self):
+        console.print("All data committed successfully.")
 
 
 OPERATORS = {

@@ -16,6 +16,8 @@ console = Console()
 
 def metal(client_weaviate,opposite_refs=None):
     client_weaviate.get_metal_collection = MethodType(get_metal_collection, client_weaviate)
+    client_weaviate.append_transaction = MethodType(append_transaction, client_weaviate)
+    client_weaviate.init_metal_batch = MethodType(init_metal_batch, client_weaviate)
     if opposite_refs != None:
         register_opposite(client_weaviate,opposite_refs)
     return client_weaviate
@@ -40,6 +42,18 @@ def get_metal_collection(self,name,force_reload=False):
             return col
         else:
             console.print("[bold red]Error:[/] [underline]Collection does not exist/typo: {}".format(name))
+
+def init_metal_batch(self):
+    self.current_transaction_object = []
+    self.current_transaction_reference = []
+
+def append_transaction(self,clt_name,data,trans_type):
+    if not hasattr(self, 'current_transaction_object') or not hasattr(self, 'current_transaction_reference'):
+        raise Exception('should call init_metal_batch first')
+    if trans_type == 'object':
+        self.current_transaction_object.append({'clt_name': clt_name, 'uuid': data})
+    if trans_type == 'reference':
+        self.current_transaction_reference.append({'clt_name': clt_name, 'ref': data})
 
 def get_opposite(self, key=None):
     if key == None:
@@ -114,10 +128,10 @@ def register_opposite(client,opposite_refs):
         else:
             console.print_exception(show_locals=True)
             console.print(str(e))
-    finally:
-        if len(buffer_clt) > 0:
-            for k,v in buffer_clt.items():
-                print(k, v.get_opposite())
+    # finally:
+    #     if len(buffer_clt) > 0:
+    #         for k,v in buffer_clt.items():
+    #             print(k, v.get_opposite())
 
 def get_weaviate_client(weaviate_client_url):
     api_key_weaviate=os.getenv('AUTHENTICATION_APIKEY_ALLOWED_KEYS')
@@ -137,21 +151,3 @@ def get_weaviate_client(weaviate_client_url):
 
     client.connect()
     return client
-
-
-# def batch_load(self,props=[],refs=[],vectors=[]):
-#     assert all(item in self.metal_context['fields'][self.name]['properties'] for item in props.keys()) 
-#     uuids = []
-#     with self.batch.dynamic() as batch:
-#         for prop, ref, vector in zip_longest(props, refs, vectors, fillvalue=None):
-#             uuids.append(batch.add_object(properties=prop,references=ref,vector=vector))
-
-#     failed_objs_a = self.batch.failed_objects
-#     failed_refs_a = self.batch.failed_references
-#     number_errors = batch.number_errors
-#     if number_errors>=1:
-#         print('number_errors', number_errors)
-#         print('messages: ', [i.message for i in failed_objs_a])
-#         return {'failed_objs_a': failed_objs_a, 'failed_refs_a': failed_refs_a}
-#     uuids = [str(uuid) for uuid in uuids]
-#     return uuids
