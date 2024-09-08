@@ -13,7 +13,7 @@ from weaviate.util import generate_uuid5,get_valid_uuid
 from rich.table import Table
 
 
-from full_metal_weaviate.container_op import __
+from full_metal_weaviate.container_op import __, safe_jmes_search
 
 console = Console()
 
@@ -26,8 +26,6 @@ def metal_load(self,to_load,dry_run=True):
             return resolved_load
         else:
             uuids=resolve_ref_uuid_and_metal_load(self,resolved_load)
-            # a = {'fff': 2}
-            # a['l']
         return uuids
     except Exception as e:
         console.print_exception(extra_lines=5,show_locals=True)
@@ -56,8 +54,9 @@ def delete_many_refs(clt, refs):
 
 def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,include_vector=False,return_raw=False,with_metadata=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
     try:
-        # assert(isinstance(include_vector, (list, bool)), 'include_vector should be either boolean or list')
-        filters=translate_filters(self,filters_str,context)
+        compiler=self.metal_compiler(filters_str,context)
+        operations=compiler.parseString(filters_str,parse_all=True)
+        w_filter=get_composed_weaviate_filter(operations)
         return_properties, return_references=translate_return_fields(return_fields)
 
         if with_metadata:
@@ -69,7 +68,7 @@ def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,in
             res = self.query.near_vector(
                 near_vector=query_vector,
                 target_vector=target_vector,
-                filters=filters,
+                filters=w_filter,
                 return_properties=return_properties,
                 return_references=return_references,
                 return_metadata=return_metadata,
@@ -78,7 +77,7 @@ def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,in
                 auto_limit=auto_limit)
         else:
             res = self.query.fetch_objects(
-                filters=filters,
+                filters=w_filter,
                 return_properties=return_properties,
                 return_references=return_references,
                 include_vector=include_vector,
@@ -86,7 +85,7 @@ def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,in
             
         if not return_raw:
             res = extract_object(res, include_vector, with_metadata)
-            if simplify_unique and len(res) == 1 and hasattr(filters, 'model_dump') and filters.model_dump()['operator'] == 'Equal':
+            if simplify_unique and len(res) == 1 and hasattr(w_filter, 'model_dump') and w_filter.model_dump()['operator'] == 'Equal':
                 res = res[0]
         return res
     except Exception as e:
@@ -94,64 +93,7 @@ def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,in
         console.print(str(e))
         # raise
         # console.print_exception(show_locals=True)
-        
-def get_ref_filter(self,prop, op, value):
-    prop_names, ref_names = self.metal_context['fields'][self.name].values()
-    temp_filter = Filter
-    refs = prop.split('.')[:-1]
-    prop = prop.split('.')[-1]
-    check_refs = all([i in ref_names for i in refs])
-    check_prop = prop in prop_names+['uuid']
-    if check_refs and check_prop:
-        for i in refs:
-            temp_filter = temp_filter.by_ref(link_on=i)
-        if prop == 'uuid':
-            temp_filter = temp_filter.by_id()
-        else:
-            temp_filter = temp_filter.by_property(prop)
-        temp_filter = getattr(temp_filter, OPERATORS[op])
-        temp_filter = temp_filter(value)
-        return temp_filter
-    else:
-        missing_ref = [i for i in refs if i not in ref_names]
-        missing_prop = [i for i in prop_names+['uuid'] if i not in prop_names+['uuid']]
-        raise Exception('[bold red]Fields missing or typoed[/]: [underline]'+ ','.join(missing_ref+missing_prop)+'[/]'+
-                         '\n[bold red]Existing fields[/]: [underline]'+ ', '.join(prop_names+ref_names))
 
-def translate_filters(self,filters_str,context = {}):
-    if filters_str is None:
-        return None
-    if is_uuid_valid(filters_str):
-        filters_str=f'uuid={filters_str}'
-
-    conditions = re.findall(r'([a-zA-Z0-9_.]+)\s*(!=|=|<=|<|>=|>|~|any|all)\s*([^&]*)', filters_str)
-
-    filter_objects = []
-    for prop, op_symbol, value_placeholder in conditions:
-        if value_placeholder in context:
-            value = context[value_placeholder]
-        else:
-            prop_ref = prop.split('.')[-1]
-            if self.metal_context['types'][self.name].get(prop_ref, '') == 'NUMBER':
-                value = float(value_placeholder)
-            else:
-                value = value_placeholder
-
-        if '.' in prop:
-            ref_filter = get_ref_filter(self, prop, op_symbol, value)
-            filter_objects.append(ref_filter)
-        else:
-            property_filter = Filter2.by_property(prop)
-            operation = getattr(property_filter, OPERATORS[op_symbol])
-            filter_objects.append(operation(value))
-
-    if len(filter_objects) > 1:
-        return reduce(lambda x, y: x & y, filter_objects)  # Combining using & operator
-    elif filter_objects:
-        return filter_objects[0]
-    else:
-        return None
-    
 def resolve_load(col,to_load):
     ready_obj = []
     buffered_query = {}
@@ -319,7 +261,6 @@ def group_opp_ref_and_load_ref(col,refs):
             buffer_clt[clt_name]=from_clt
         batch_load_references(from_clt,group_refs)
 
-
 # uuids_mapping = pd.DataFrame()
 # r=__(r).nested.get(['uuid', 'properties.name'])
 # r=pd.json_normalize(r)
@@ -328,6 +269,88 @@ def group_opp_ref_and_load_ref(col,refs):
 # if not is_duplicated:
 #     uuids_mapping=new_uuids
 
+############################################################################
+######### compile metal filters to weaviate filters
+############################################################################
+
+
+def custom_one_of(allowed_fields):
+    regex_pattern = r'\b(?:' + '|'.join(allowed_fields) + r')\b|\w+'
+    return Regex(regex_pattern)
+
+def one_of_checker(x, allowed_fields):
+    regex_pattern = r'^(?:' + '|'.join(map(re.escape, allowed_fields)) + ')'
+    is_match = bool(re.match(regex_pattern, x[0]))
+    if not is_match:
+        raise Exception('name not matching')
+
+def get_ident(allowed_fields): # sub optimal checking for authorised fields
+    base_ident=custom_one_of(allowed_fields)
+    base_ident.add_parse_action(lambda x: one_of_checker(x,allowed_fields))
+    subfield_ident = Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
+    ident = Combine(base_ident + ZeroOrMore('.' + subfield_ident))
+    return ident
+
+def get_expr(allowed_fields):
+    ident = get_ident(allowed_fields)
+    operator = Regex("!=|=|<=|<|>=|>|~|any|all").setName("operator")
+    value = Regex(r'(?:[^=<>~!&|()\s"]+|"[^"]*")(?:\s+[^=<>~!&|()\s"]+)*')
+    condition = Group(ident + operator + value)
+    lpar, rpar = map(Literal, "()")
+    expr = Forward()
+    atom = condition | Group(lpar + expr + rpar)
+    expr <<= infixNotation(atom, [
+        ('&', 2, opAssoc.LEFT, lambda t: {"and": [t[0][0], t[0][2]]}),
+        ('|', 2, opAssoc.LEFT, lambda t: {"or": [t[0][0], t[0][2]]})
+    ])
+    return expr
+
+def get_composed_weaviate_filter(operations):
+    if isinstance(operations, list) and isinstance(operations[0], dict):
+        return [get_composed_weaviate_filter(item) for item in operations]
+    elif isinstance(operations, dict):
+        for key, value in operations.items():
+            op_left = get_composed_weaviate_filter(value[0])
+            op_right = get_composed_weaviate_filter(value[1])
+            if key == 'and':
+                return op_left&op_right
+            elif key == 'or':
+                return op_left|op_right
+    else:
+        return get_atomic_weaviate_filter(operations[0],operations[1], operations[2])
+
+def get_atomic_weaviate_filter(prop, op_symbol, value):
+    prop_names, ref_names = self.metal_props, self.metal_refs
+    w_filter=Filter
+    prop_split=prop.split('.')
+    if len(prop_split) == 1:
+        if prop_split[0] in prop_names+['uuid']:
+            prop_split = prop_split[0]
+            if prop_split == 'uuid':
+                w_filter=w_filter.by_id()
+            elif prop_split in prop_names:
+                w_filter=w_filter.by_property(prop_split)
+        else:
+            if prop_split[0] in ref_names:
+                raise Exception('metal references queries should be reference.property=value ex: hasArticle.name=articleName')
+            else:
+                raise Exception(f'property {prop_split[0]} does not exist, exsiting props: {prop_names}')
+    elif len(prop_split) > 1:
+        refs,prop=prop_split[:-1], prop_split[-1]
+        check_refs = all([i in ref_names for i in refs])
+        check_prop = prop in prop_names+['uuid']
+        if check_refs and check_prop:
+            for i in refs:
+                w_filter = w_filter.by_ref(link_on=i)
+            if prop == 'uuid':
+                w_filter = w_filter.by_id()
+            else:
+                w_filter = w_filter.by_property(prop)
+        else:
+            raise Exception(f'check_refs: {check_refs}, check_prop: {check_prop}')
+    w_filter = getattr(w_filter, OPERATORS[op_symbol])
+    w_filter = w_filter(value)
+    return w_filter
 
 def is_uuid_valid(uuid):
     try:
@@ -337,34 +360,6 @@ def is_uuid_valid(uuid):
         return False
     except TypeError:
         return False
-
-
-class Filter2:
-    @staticmethod
-    def by_property(prop):
-        class PropertyFilter:
-            def equal(self, value):
-                if prop == 'uuid':
-                    return Filter.by_id().equal(value)
-                return Filter.by_property(prop).equal(value)
-            def less_than(self, value):
-                return Filter.by_property(prop).less_than(value)
-            def less_or_equal(self, value):
-                return Filter.by_property(prop).less_or_equal(value)
-            def greater_than(self, value):
-                return Filter.by_property(prop).greater_than(value)
-            def greater_or_equal(self, value):
-                return Filter.by_property(prop).greater_or_equal(value)
-            def like(self, pattern):
-                return Filter.by_property(prop).like(pattern)
-            def contains_any(self, values):
-                if prop == 'uuid':
-                    return Filter.by_id().contains_any(values)
-                return Filter.by_property(prop).contains_any(values)
-            def contains_all(self, values):
-                return Filter.by_property(prop).contains_all(values)
-        return PropertyFilter()
-
 
 def translate_return_fields(return_fields):
     if return_fields == None:
@@ -429,35 +424,6 @@ def extract_object(res, include_vector=False, with_metadata=False):
 
     return [recursive_extract(i) for i in res.objects]
 
-
-class WeaviateTransaction:
-    def __init__(self, client):
-        self.client = client
-        self.uuids = []
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type:
-            self.rollback()
-        else:
-            self.commit()
-
-    def add_data(self, data):
-        uuid = self.client.add(data)
-        self.uuids.append(uuid)
-        return uuid
-
-    def rollback(self):
-        for uuid in self.uuids:
-            self.client.delete(uuid)
-        console.print("Rolled back all changes.")
-
-    def commit(self):
-        console.print("All data committed successfully.")
-
-
 OPERATORS = {
     '!=': 'not_equal',
     '=': 'equal',
@@ -469,3 +435,106 @@ OPERATORS = {
     'any': 'contains_any',
     'all': 'contains_all',
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class Filter2:
+    @staticmethod
+    def by_property(prop):
+        class PropertyFilter:
+            def equal(self, value):
+                if prop == 'uuid':
+                    return Filter.by_id().equal(value)
+                return Filter.by_property(prop).equal(value)
+            def less_than(self, value):
+                return Filter.by_property(prop).less_than(value)
+            def less_or_equal(self, value):
+                return Filter.by_property(prop).less_or_equal(value)
+            def greater_than(self, value):
+                return Filter.by_property(prop).greater_than(value)
+            def greater_or_equal(self, value):
+                return Filter.by_property(prop).greater_or_equal(value)
+            def like(self, pattern):
+                return Filter.by_property(prop).like(pattern)
+            def contains_any(self, values):
+                if prop == 'uuid':
+                    return Filter.by_id().contains_any(values)
+                return Filter.by_property(prop).contains_any(values)
+            def contains_all(self, values):
+                return Filter.by_property(prop).contains_all(values)
+        return PropertyFilter()
+
+def translate_filters(self,filters_str,context = {}):
+    if filters_str is None:
+        return None
+    if is_uuid_valid(filters_str):
+        filters_str=f'uuid={filters_str}'
+
+    conditions = re.findall(r'([a-zA-Z0-9_.]+)\s*(!=|=|<=|<|>=|>|~|any|all)\s*([^&]*)', filters_str)
+
+    filter_objects = []
+    for prop, op_symbol, value_placeholder in conditions:
+        if value_placeholder in context:
+            value = context[value_placeholder]
+        else:
+            prop_ref = prop.split('.')[-1]
+            prop_ref_type = safe_jmes_search(f'types.{self.name}.{prop_ref}', self.metal_context).value_or('')
+            if prop_ref_type == 'NUMBER':
+                value = float(value_placeholder)
+            else:
+                value = value_placeholder
+
+        if '.' in prop:
+            ref_filter = get_ref_filter(self, prop, op_symbol, value)
+            filter_objects.append(ref_filter)
+        else:
+            property_filter = Filter2.by_property(prop)
+            operation = getattr(property_filter, OPERATORS[op_symbol])
+            filter_objects.append(operation(value))
+
+    if len(filter_objects) > 1:
+        return reduce(lambda x, y: x & y, filter_objects)  # Combining using & operator
+    elif filter_objects:
+        return filter_objects[0]
+    else:
+        return None
+
+def get_ref_filter(self,prop, op, value):
+    prop_names, ref_names = safe_jmes_search(f'fields.{self.name}.properties', self.metal_context).unwrap()
+    temp_filter = Filter
+    refs = prop.split('.')[:-1]
+    prop = prop.split('.')[-1]
+    check_refs = all([i in ref_names for i in refs])
+    check_prop = prop in prop_names+['uuid']
+    if check_refs and check_prop:
+        for i in refs:
+            temp_filter = temp_filter.by_ref(link_on=i)
+        if prop == 'uuid':
+            temp_filter = temp_filter.by_id()
+        else:
+            temp_filter = temp_filter.by_property(prop)
+        temp_filter = getattr(temp_filter, OPERATORS[op])
+        temp_filter = temp_filter(value)
+        return temp_filter
+    else:
+        missing_ref = [i for i in refs if i not in ref_names]
+        missing_prop = [i for i in prop_names+['uuid'] if i not in prop_names+['uuid']]
+        raise Exception('[bold red]Fields missing or typoed[/]: [underline]'+ ','.join(missing_ref+missing_prop)+'[/]'+
+                         '\n[bold red]Existing fields[/]: [underline]'+ ', '.join(prop_names+ref_names))

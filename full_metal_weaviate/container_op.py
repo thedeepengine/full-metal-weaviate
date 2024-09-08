@@ -3,6 +3,8 @@ from functools import reduce
 from types import FunctionType
 import pandas as pd
 from rich.console import Console
+from returns.maybe import Maybe, Some, Nothing
+
 console = Console()
 
 class Metal:
@@ -204,6 +206,12 @@ class Metal:
 
         self.data = recurse(self.data, target_key)
         return self.data
+
+def safe_jmes_search(query, data) -> Maybe:
+    result = jmespath.search(query, data)
+    if result is not None:
+        return Some(result)
+    return Nothing
 
 
 # alias

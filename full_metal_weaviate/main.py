@@ -8,8 +8,8 @@ from weaviate import WeaviateClient
 from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
 
-from full_metal_weaviate.weaviate_op import metal_query,metal_load
-from full_metal_weaviate.container_op import __
+from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_expr
+from full_metal_weaviate.container_op import __, safe_jmes_search
 from full_metal_weaviate.exception_helper import noOppositeFound
 
 console = Console()
@@ -30,6 +30,9 @@ def get_metal_collection(self,name,force_reload=False):
         if is_clt_existing(col):
             col.client_parent=weakref.ref(self)
             col.metal_context=set_weaviate_context(self)
+            col.metal_props = safe_jmes_search(f'fields.{name}.properties', col.metal_context).unwrap()
+            col.metal_refs = safe_jmes_search(f'fields.{name}.references', col.metal_context).unwrap()
+            col.metal_compiler = get_expr(col.metal_props+col.metal_refs)
             col.q = MethodType(metal_query, col)
             col.metal_query = MethodType(metal_query, col)
             col.get_opposite = MethodType(get_opposite, col)
@@ -43,6 +46,7 @@ def get_metal_collection(self,name,force_reload=False):
         else:
             console.print("[bold red]Error:[/] [underline]Collection does not exist/typo: {}".format(name))
 
+go_metal = get_metal_collection
 def init_metal_batch(self):
     self.current_transaction_object = []
     self.current_transaction_reference = []
