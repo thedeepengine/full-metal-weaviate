@@ -7,6 +7,13 @@ import weaviate.classes as wvc
 from weaviate.classes.config import Property, DataType, ReferenceProperty, Configure, Tokenization
 
 
+#######################
+### Jeopardy
+#######################
+
+client.collections.delete('JeopardyQuestion')
+client.collections.delete('JeopardyCategory')
+
 JeopardyQuestion = client.collections.create(
     name="JeopardyQuestion",
     description="A Jeopardy! question",
@@ -14,7 +21,9 @@ JeopardyQuestion = client.collections.create(
         Property(name="question", data_type=DataType.TEXT),
         Property(name="answer", data_type=DataType.TEXT),
         Property(name="points", data_type=DataType.INT)
-    ]
+    ],
+    vectorizer_config=[Configure.NamedVectors.none(name="question"),
+                    Configure.NamedVectors.none(name="answer")]
 )
 
 # JeopardyQuestion.config.add_property(Property(name="points",data_type=DataType.INT))
@@ -23,19 +32,21 @@ JeopardyCategory = client.collections.create(
     name="JeopardyCategory",
     description="A Jeopardy! category",
     properties=[
-        Property(name="title", data_type=DataType.TEXT)
+        Property(name="title", data_type=DataType.TEXT),
+        Property(name="description", data_type=DataType.TEXT)
     ]
 )
 
-JeopardyQuestion.config.add_reference(
-    ReferenceProperty(
-        name="hasCategory",
-        target_collection="JeopardyCategory"))
+JeopardyQuestion.config.add_reference(ReferenceProperty(name="hasCategory",target_collection="JeopardyCategory"))
+JeopardyQuestion.config.add_reference(ReferenceProperty(name="hasAssociatedQuestion",target_collection="JeopardyQuestion"))
+JeopardyQuestion.config.add_reference(ReferenceProperty(name="associatedQuestionOf",target_collection="JeopardyQuestion"))
 
-JeopardyCategory.config.add_reference(
-    ReferenceProperty(
-        name="hasQuestion",
-        target_collection="JeopardyQuestion"))
+JeopardyCategory.config.add_reference(ReferenceProperty(name="hasQuestion",target_collection="JeopardyQuestion"))
+
+
+#######################
+### Class Code
+#######################
 
 class_test_clt = client_weaviate.collections.create(
     name='ClassTest',
@@ -79,11 +90,15 @@ client=metal(client_weaviate, opposite_refs)
 
 ### jeopardy collection
 
-opposite_refs = ['JeopardyQuestion.hasCategory<>JeopardyCategory.hasQuestion']
+opposite_refs = ['JeopardyQuestion.hasCategory<>JeopardyCategory.hasQuestion',
+                 'JeopardyQuestion.hasAssociatedQuestion<>JeopardyQuestion.associatedQuestionOf']
 
-client_weaviate=get_weaviate_client('localhost')
-client=metal(client_weaviate, opposite_refs)
-
+def get_test_clt():
+    client_weaviate=get_weaviate_client('localhost')
+    client=metal(client_weaviate, opposite_refs)
+    JeopardyQuestion=client.get_metal_collection('JeopardyQuestion')
+    JeopardyCategory=client.get_metal_collection('JeopardyCategory')
+    return JeopardyQuestion,JeopardyCategory
 
 ###########################################################################
 ######### test weaviate client
@@ -117,17 +132,95 @@ col=JeopardyQuestion
 chain_split=['hasCategory', 'title']
 ref_naming_checker(JeopardyQuestion, ['hasCatkegory', 'tikktle'])
 
-operations.tolist()
 
-######## test metal_load
-class_clt=client.get_metal_collection('ClassTest')
+#########################################
+##### return_fields #####################
+#########################################
 
-# register opposite references
+'question,answer' # simple direct fields
+'question,answer;;hasCategory:title' # with second level
+'question,answer,vector:question,metadata:distance;;hasCategory:title'
+'vector:default',
+'vector:question',
+return_fields = 'question,answer;;hasCategory:title'
+return_fields = 'question,answer,vector;;hasCategory:title' 
+return_fields = 'question,answer,vector:question;;hasCategory:title' 
 
-opposite_refs = ['ffdsfs']
-# node_col.config.add_reference(ReferenceProperty(name="instanceOf",target_collection=classname))
+return_fields='question,metadata:distance;;hasCategory:title,description|hasAssociatedQuestion:question' # same level
+return_fields='question,metadata:distance;;hasAssociatedQuestion:question;hasCategory:title' # nested
 
-register_opposite(client,opposite_refs)
+
+translate_return_fields(return_fields)
+
+
+modelVectorizer = SentenceTransformer('/Users/paulhechinger/05data_shokunin/vectorizer/sentence_transformers/sentence-transformers_multi-qa-MiniLM-L6-cos-v1')
+
+
+
+
+JeopardyQuestion.q(uuid[0])
+
+
+
+JeopardyQuestion.q('question ~ *', 'question;;hasCategory:title')
+JeopardyQuestion.q(return_fields='hasCategory.title')
+
+
+uuids = ['93173e12-3909-4208-8d92-b641b0f06234']*10000
+
+is_uuid_valid('93173e12-3909-4208-8d92-b641b0f06234')
+
+a=all([is_uuid_valid(i) for i in uuids])
+get_valid_uuid(['93173e12-3909-4208-8d92-b641b0f06234', '93173e12-3909-4208-8d92-b641b0f06234'])
+
+JeopardyQuestion.q(include_vector=True)
+is_metal_collection(JeopardyQuestion)
+
+JeopardyQuestion.query.fetch_objects(
+                return_properties=['question'],
+                # return_references=[],
+                include_vector=['question', 'answer', 'ggg'],
+                limit=100)
+
+
+get_expr(['name']).parseString('name=ddd')
+allowed_fields = ['name']
+expr.parseString('name=3&name=fff')
+
+
+
+
+#########################################
+##### test metal_load ###################
+#########################################
+
+JeopardyQuestion,JeopardyCategory=get_test_clt()
+
+
+question_to_load = [{'question': 'question1', 
+                         'vector': {'question': [1,2,3]}},
+                         {'question': 'question2', 
+                         'vector': {'question': [1,2,3]}},
+                         {'question': 'question3', 
+                         'vector': {'question': [1,2,3]}}]
+uuid=JeopardyQuestion.l(question_to_load, False)
+
+category_to_load = [{'title': 'football', 'description': 'football questions'},
+            {'title': 'politics', 'description': 'politics questions'}]
+uuid = JeopardyCategory.l(category_to_load, False)
+
+
+ref_to_load = [{'from_uuid': '93173e12-3909-4208-8d92-b641b0f06234',
+                    'from_property': '<>hasCategory',
+                    'to_uuid': 'a9c1ac6b-369c-4f88-a0f5-0049f1e7993a'},
+                    {'from_uuid': '93173e12-3909-4208-8d92-b641b0f06234',
+                    'from_property': '<>hasCategory',
+                    'to_uuid': 'a9c1ac6b-369c-4f88-a0f5-0049f1e7993a'}]
+
+ref_to_load = [['93173e12-3909-4208-8d92-b641b0f06234','<>hasCategory','a9c1ac6b-369c-4f88-a0f5-0049f1e7993a'],
+           ['ba58b3f0-4ab5-4ed5-afff-495c743b4c33','<>hasCategory','97e75959-95a0-44c4-bc88-eba27b1c61c6']]
+
+JeopardyQuestion.l(ref_to_load,False)
 
 
 ######## full update

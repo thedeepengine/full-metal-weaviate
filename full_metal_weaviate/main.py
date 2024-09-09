@@ -22,6 +22,8 @@ def metal(client_weaviate,opposite_refs=None):
         register_opposite(client_weaviate,opposite_refs)
     return client_weaviate
 
+get_metal_client = metal
+
 def get_metal_collection(self,name,force_reload=False):
     if not force_reload and name in getattr(self,'metal_collection',[]):
         return getattr(self,'metal_collection')[name]
@@ -60,14 +62,17 @@ def append_transaction(self,clt_name,data,trans_type):
         self.current_transaction_reference.append({'clt_name': clt_name, 'ref': data})
 
 def get_opposite(self, key=None):
-    if key == None:
-        return jmespath.search(f'ref_target.{self.name}', self.metal_context) 
-    else:
-        opposite=jmespath.search(f'ref_target.{self.name}.{key}.opposite', self.metal_context)
-        if opposite == None:
-            raise Exception(noOppositeFound)
+    try:
+        if key == None:
+            return jmespath.search(f'ref_target.{self.name}', self.metal_context) 
         else:
-            return opposite
+            opposite=jmespath.search(f'ref_target.{self.name}.{key}.opposite', self.metal_context)
+            if opposite == None:
+                raise
+            else:
+                return opposite
+    except Exception as e:
+        console.print(f'No opposite found for {key}. Show example ')
 
 def set_weaviate_context(client_weaviate):
     all_schema = client_weaviate.collections.list_all(simple=False)

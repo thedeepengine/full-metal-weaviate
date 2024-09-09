@@ -47,13 +47,16 @@ class Metal:
             if isinstance(fields, FunctionType):
                 if isinstance(self.data[0], dict):
                     return [dict(filter(fields, i.items())) for i in self.data]
+                else:
+                    return [i for i in self.data if fields(i)]
             if type(fields) == str:
                 fields = [fields]
-            if self.nestedtemp == True:
-                return [__(i).nested_to_flat(fields, pattern=pattern, names=names) for i in self.data]
-            res = [{k:v for k,v in i.items() if k in fields} for i in self.data]
-            if len(fields) == 1:
-                res = [i[fields[0]] for i in res]
+            if isinstance(fields, dict):
+                if self.nestedtemp == True:
+                    return [__(i).nested_to_flat(fields, pattern=pattern, names=names) for i in self.data]
+                res = [{k:v for k,v in i.items() if k in fields} for i in self.data]
+                if len(fields) == 1:
+                    res = [i[fields[0]] for i in res]
             return res
     
     def filter(self, func):

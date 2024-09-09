@@ -175,3 +175,29 @@ Full Metal Weaviate enforces a lot of constraints.
 
 
 Here we name things, assign properties, zoom-in and zoom-out, move up and down the abstraction ladder, etc.. collectively we call that disambiguation and the tool to disambiguate: a disambiguation engine.
+
+## Register 2 way references
+
+### When you get your weaviate client
+```
+opposite_refs = ['JeopardyQuestion.hasCategory<>JeopardyCategory.hasQuestion',
+                 'JeopardyQuestion.hasOwner<>JeopardyUsers.ownerOf']
+
+client=get_metal_client(weaviate_client, opposite_refs)
+# then load your data using <>:
+JeopardyQuestion=client.get_metal_collection('JeopardyQuestion')
+JeopardyQuestion.metal_load({'question': 'my question', '<>hasCategory': category_uuid})
+```
+
+### When your client is already loaded
+
+```
+opposite_refs = ['JeopardyQuestion.hasCategory<>JeopardyCategory.hasQuestion',
+                 'JeopardyQuestion.hasOwner<>JeopardyUsers.ownerOf']
+
+client=get_metal_client(weaviate_client)
+client.register_opposite_ref(opposite_refs)
+# then load your data using <>:
+JeopardyQuestion=client.get_metal_collection('JeopardyQuestion')
+JeopardyQuestion.metal_load({'question': 'my question', '<>hasCategory': category_uuid})
+```
