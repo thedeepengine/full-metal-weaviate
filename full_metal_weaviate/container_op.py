@@ -214,6 +214,16 @@ def safe_jmes_search(query, data) -> Maybe:
     return Nothing
 
 
+class BooleanTest:
+    def __init__(self, func):
+        self.func = func
+
+    def trueOrRaise(self, message):
+        if not self.func():
+            raise ValueError(message)
+        return True
+
+
 # alias
 
 __ = Metal

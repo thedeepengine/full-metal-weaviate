@@ -10,10 +10,12 @@ from rich.traceback import install
 from weaviate.classes.query import MetadataQuery, Filter, QueryReference
 from weaviate.exceptions import WeaviateBaseError
 from weaviate.util import generate_uuid5,get_valid_uuid
+from pyparsing import ZeroOrMore, Combine, Regex, Group, Forward, infixNotation, opAssoc
+
 from rich.table import Table
 
 
-from full_metal_weaviate.container_op import __, safe_jmes_search
+from full_metal_weaviate.container_op import __, safe_jmes_search, BooleanTest
 
 console = Console()
 
@@ -54,9 +56,8 @@ def delete_many_refs(clt, refs):
 
 def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,include_vector=False,return_raw=False,with_metadata=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
     try:
-        compiler=self.metal_compiler(filters_str,context)
-        operations=compiler.parseString(filters_str,parse_all=True)
-        w_filter=get_composed_weaviate_filter(operations)
+        operations=self.metal_compiler.parseString(filters_str,parse_all=True)
+        w_filter=get_composed_weaviate_filter(self,operations)
         return_properties, return_references=translate_return_fields(return_fields)
 
         if with_metadata:
@@ -273,16 +274,18 @@ def group_opp_ref_and_load_ref(col,refs):
 ######### compile metal filters to weaviate filters
 ############################################################################
 
-
 def custom_one_of(allowed_fields):
     regex_pattern = r'\b(?:' + '|'.join(allowed_fields) + r')\b|\w+'
     return Regex(regex_pattern)
 
 def one_of_checker(x, allowed_fields):
-    regex_pattern = r'^(?:' + '|'.join(map(re.escape, allowed_fields)) + ')'
-    is_match = bool(re.match(regex_pattern, x[0]))
-    if not is_match:
-        raise Exception('name not matching')
+    try:
+        regex_pattern = r'^(?:' + '|'.join(map(re.escape, allowed_fields)) + ')'
+        is_match = bool(re.match(regex_pattern, x[0]))
+        if not is_match:
+            raise # Exception(f'name not matching: {x}')
+    except Exception as e:
+        console.print(f'[bold magenta]Field name not found:[/] {x} \n [bold magenta]Existing fields:[/] {allowed_fields}')
 
 def get_ident(allowed_fields): # sub optimal checking for authorised fields
     base_ident=custom_one_of(allowed_fields)
@@ -305,22 +308,24 @@ def get_expr(allowed_fields):
     ])
     return expr
 
-def get_composed_weaviate_filter(operations):
+def get_composed_weaviate_filter(col,operations,context={}):
     if isinstance(operations, list) and isinstance(operations[0], dict):
-        return [get_composed_weaviate_filter(item) for item in operations]
+        return [get_composed_weaviate_filter(col,item) for item in operations]
     elif isinstance(operations, dict):
         for key, value in operations.items():
-            op_left = get_composed_weaviate_filter(value[0])
-            op_right = get_composed_weaviate_filter(value[1])
+            op_left = get_composed_weaviate_filter(col,value[0])
+            op_right = get_composed_weaviate_filter(col,value[1])
             if key == 'and':
                 return op_left&op_right
             elif key == 'or':
                 return op_left|op_right
     else:
-        return get_atomic_weaviate_filter(operations[0],operations[1], operations[2])
+        return get_atomic_weaviate_filter(col,operations[0],operations[1], operations[2],context)
 
-def get_atomic_weaviate_filter(prop, op_symbol, value):
-    prop_names, ref_names = self.metal_props, self.metal_refs
+def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
+    if prop in context:
+        value = context[prop]
+    prop_names, ref_names = col.metal_props, col.metal_refs
     w_filter=Filter
     prop_split=prop.split('.')
     if len(prop_split) == 1:
@@ -336,18 +341,39 @@ def get_atomic_weaviate_filter(prop, op_symbol, value):
             else:
                 raise Exception(f'property {prop_split[0]} does not exist, exsiting props: {prop_names}')
     elif len(prop_split) > 1:
+        def ref_naming_checker(col,chain_split):
+            assert chain_split[0] in col.metal_refs, f'{chain_split[0]} not in available reference fields: {col.metal_refs}'
+            target_clt=__(col.metal_context).get(f'ref_target.{col.name}.{chain_split[0]}.target_clt')
+            target_fields=__(col.metal_context).get(f'fields.{target_clt}')
+
+            for i,v in enumerate(chain_split[1:]):
+                if i == len(chain_split[1:])-1:
+                    assert v in target_fields['properties'], f'{v} not in available property fields {target_fields["properties"]}'
+                else:
+                    target_clt=__(col.metal_context).get(f'ref_target.{col.name}.{v}.target_clt')
+                    target_fields=__(col.metal_context).get(f'fields.{target_clt}')
+                    fields = target_fields['properties']+target_fields['references']
+                    assert v in fields, f'{v} not in available reference fields {fields}'
+            
+
         refs,prop=prop_split[:-1], prop_split[-1]
-        check_refs = all([i in ref_names for i in refs])
-        check_prop = prop in prop_names+['uuid']
-        if check_refs and check_prop:
-            for i in refs:
-                w_filter = w_filter.by_ref(link_on=i)
-            if prop == 'uuid':
-                w_filter = w_filter.by_id()
-            else:
-                w_filter = w_filter.by_property(prop)
+        for i in refs:
+            safe_jmes_search('fields.JeopardyCategory.properties', JeopardyQuestion.metal_context).unwrap()
+            w_filter = w_filter.by_ref(link_on=i)
+        if prop == 'uuid':
+            w_filter = w_filter.by_id()
         else:
-            raise Exception(f'check_refs: {check_refs}, check_prop: {check_prop}')
+            w_filter = w_filter.by_property(prop)
+        #     else:
+        #         raise
+        # except Exception as e:
+        #     missing_ref = [i for i in refs if i not in ref_names]
+        #     missing_prop = [i for i in prop_names+['uuid'] if i not in prop_names+['uuid']]
+        #     # Exception(f'check_refs: {check_refs}, check_prop: {check_prop}')
+        #     if missing_ref: console.print(f'[bold magenta]Not found ref:[/] {missing_ref}')
+        #     if missing_prop: console.print(f'[bold magenta]Not found prop:[/] {missing_prop}')
+        #     console.print_exception(show_locals=True)
+
     w_filter = getattr(w_filter, OPERATORS[op_symbol])
     w_filter = w_filter(value)
     return w_filter
@@ -435,106 +461,3 @@ OPERATORS = {
     'any': 'contains_any',
     'all': 'contains_all',
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-class Filter2:
-    @staticmethod
-    def by_property(prop):
-        class PropertyFilter:
-            def equal(self, value):
-                if prop == 'uuid':
-                    return Filter.by_id().equal(value)
-                return Filter.by_property(prop).equal(value)
-            def less_than(self, value):
-                return Filter.by_property(prop).less_than(value)
-            def less_or_equal(self, value):
-                return Filter.by_property(prop).less_or_equal(value)
-            def greater_than(self, value):
-                return Filter.by_property(prop).greater_than(value)
-            def greater_or_equal(self, value):
-                return Filter.by_property(prop).greater_or_equal(value)
-            def like(self, pattern):
-                return Filter.by_property(prop).like(pattern)
-            def contains_any(self, values):
-                if prop == 'uuid':
-                    return Filter.by_id().contains_any(values)
-                return Filter.by_property(prop).contains_any(values)
-            def contains_all(self, values):
-                return Filter.by_property(prop).contains_all(values)
-        return PropertyFilter()
-
-def translate_filters(self,filters_str,context = {}):
-    if filters_str is None:
-        return None
-    if is_uuid_valid(filters_str):
-        filters_str=f'uuid={filters_str}'
-
-    conditions = re.findall(r'([a-zA-Z0-9_.]+)\s*(!=|=|<=|<|>=|>|~|any|all)\s*([^&]*)', filters_str)
-
-    filter_objects = []
-    for prop, op_symbol, value_placeholder in conditions:
-        if value_placeholder in context:
-            value = context[value_placeholder]
-        else:
-            prop_ref = prop.split('.')[-1]
-            prop_ref_type = safe_jmes_search(f'types.{self.name}.{prop_ref}', self.metal_context).value_or('')
-            if prop_ref_type == 'NUMBER':
-                value = float(value_placeholder)
-            else:
-                value = value_placeholder
-
-        if '.' in prop:
-            ref_filter = get_ref_filter(self, prop, op_symbol, value)
-            filter_objects.append(ref_filter)
-        else:
-            property_filter = Filter2.by_property(prop)
-            operation = getattr(property_filter, OPERATORS[op_symbol])
-            filter_objects.append(operation(value))
-
-    if len(filter_objects) > 1:
-        return reduce(lambda x, y: x & y, filter_objects)  # Combining using & operator
-    elif filter_objects:
-        return filter_objects[0]
-    else:
-        return None
-
-def get_ref_filter(self,prop, op, value):
-    prop_names, ref_names = safe_jmes_search(f'fields.{self.name}.properties', self.metal_context).unwrap()
-    temp_filter = Filter
-    refs = prop.split('.')[:-1]
-    prop = prop.split('.')[-1]
-    check_refs = all([i in ref_names for i in refs])
-    check_prop = prop in prop_names+['uuid']
-    if check_refs and check_prop:
-        for i in refs:
-            temp_filter = temp_filter.by_ref(link_on=i)
-        if prop == 'uuid':
-            temp_filter = temp_filter.by_id()
-        else:
-            temp_filter = temp_filter.by_property(prop)
-        temp_filter = getattr(temp_filter, OPERATORS[op])
-        temp_filter = temp_filter(value)
-        return temp_filter
-    else:
-        missing_ref = [i for i in refs if i not in ref_names]
-        missing_prop = [i for i in prop_names+['uuid'] if i not in prop_names+['uuid']]
-        raise Exception('[bold red]Fields missing or typoed[/]: [underline]'+ ','.join(missing_ref+missing_prop)+'[/]'+
-                         '\n[bold red]Existing fields[/]: [underline]'+ ', '.join(prop_names+ref_names))
