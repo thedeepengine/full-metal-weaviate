@@ -196,31 +196,53 @@ expr.parseString('name=3&name=fff')
 
 JeopardyQuestion,JeopardyCategory=get_test_clt()
 
+### just obj ##############
+to_load = [
+    {'question': 'question1', 'vector': {'question': [1,2,3]}},
+    {'question': 'question2', 'vector': {'question': [1,2,3]}},
+    {'question': 'question3', 'vector': {'question': [1,2,3]}}]
 
-question_to_load = [{'question': 'question1', 
-                         'vector': {'question': [1,2,3]}},
-                         {'question': 'question2', 
-                         'vector': {'question': [1,2,3]}},
-                         {'question': 'question3', 
-                         'vector': {'question': [1,2,3]}}]
-uuid=JeopardyQuestion.l(question_to_load, False)
+uuid_question=JeopardyQuestion.l(to_load, False)
 
 category_to_load = [{'title': 'football', 'description': 'football questions'},
             {'title': 'politics', 'description': 'politics questions'}]
-uuid = JeopardyCategory.l(category_to_load, False)
+uuid_category = JeopardyCategory.l(category_to_load, False)
+
+self= JeopardyCategory
+filters_str ='uuid=9b24c6f0-5687-4fd7-966a-cd952cfee07c'
+JeopardyCategory.q('uuid=9b24c6f0-5687-4fd7-966a-cd952cfee07c')
+
+### mix obj without opposite refs ##############
+to_load = [
+    {'question': 'question1', 'vector': {'question': [1,2,3]}, 'hasCategory': str(uuid_category[0])},
+    {'question': 'question2', 'vector': {'question': [1,2,3]}, 'hasCategory': str(uuid_category[1])}]
+uuid_question=JeopardyQuestion.l(to_load, False)
+
+### mix obj with opposite refs ##############
+to_load = [
+    {'question': 'question1', 'vector': {'question': [1,2,3]}, '<>hasCategory': str(uuid_category[0])},
+    {'question': 'question2', 'vector': {'question': [1,2,3]}, '<>hasCategory': str(uuid_category[1])}]
+uuid_question=JeopardyQuestion.l(to_load, True)
 
 
-ref_to_load = [{'from_uuid': '93173e12-3909-4208-8d92-b641b0f06234',
-                    'from_property': '<>hasCategory',
-                    'to_uuid': 'a9c1ac6b-369c-4f88-a0f5-0049f1e7993a'},
-                    {'from_uuid': '93173e12-3909-4208-8d92-b641b0f06234',
-                    'from_property': '<>hasCategory',
-                    'to_uuid': 'a9c1ac6b-369c-4f88-a0f5-0049f1e7993a'}]
+to_load = [
+    {'from_uuid': uuid_question[0],'from_property': '<>hasCategory','to_uuid': str(uuid_category[0])},
+    {'from_uuid': uuid_question[1],'from_property': '<>hasCategory','to_uuid': str(uuid_category[1])},
+    {'from_uuid': uuid_question[2],'from_property': '<>hasCategory','to_uuid': str(uuid_category[1])}]
 
 ref_to_load = [['93173e12-3909-4208-8d92-b641b0f06234','<>hasCategory','a9c1ac6b-369c-4f88-a0f5-0049f1e7993a'],
            ['ba58b3f0-4ab5-4ed5-afff-495c743b4c33','<>hasCategory','97e75959-95a0-44c4-bc88-eba27b1c61c6']]
 
 JeopardyQuestion.l(ref_to_load,False)
+
+
+
+
+
+
+to_load = [
+    {'question': 'question1', 'vector': {'question': [1,2,3]}, '<>hasCategory': '93173e12-3909-4208-8d92-b641b0f06234'},
+    {'question': 'question2', 'vector': {'question': [1,2,3]}, '<>hasCategory': '93173e12-3909-4208-8d92-b641b0f06234'}]
 
 
 ######## full update

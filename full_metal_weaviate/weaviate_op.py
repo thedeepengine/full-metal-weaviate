@@ -23,41 +23,44 @@ console = Console()
 def metal_load(self,to_load,dry_run=True):
     try:
         self.client_parent().init_metal_batch()
-        ref_format=check_ref_format(to_load)
-        if ref_format:
+        ref_format=check_format(self,to_load)
+        if ref_format in ['ref_array_with_valid_uuid', 'ref_dict_with_valid_uuid']:
             resolved_load=resolve_ref_to_load(self,to_load,ref_format)
-        else:
+        elif ref_format == 'mix_dict':
             resolved_load=resolve_mix_to_load(self,to_load)
 
         if dry_run:
             return resolved_load
         else:
-            if ref_format:
+            if ref_format in ['ref_array_with_valid_uuid', 'ref_dict_with_valid_uuid']:
                 resolved_load=[j for i in resolved_load for j in i]
                 group_opp_ref_and_load_ref(self,resolved_load)
-            else:
+            elif ref_format == 'mix_dict':
                 uuids=resolve_ref_uuid_and_metal_load(self,resolved_load)
         return uuids
     except Exception as e:
         objs=self.client_parent().current_transaction_object
         refs=self.client_parent().current_transaction_reference
         console.print_exception(extra_lines=5,show_locals=True)
-        if (objs):
-            console.print('\n----------[bold blue] Exception Raised Triggered Metal Rollback for objects[/] --------------\n')
-            uuids=__(objs).get(['uuid'])
-            self.data.delete_many(where=Filter.by_id().contains_any(uuids))
-            console.print(f'[magenta]Deleting {len(uuids)} object(s)')
+        if (objs or refs):
+            console.print('\n----------[bold blue] Exception Raised Triggered Metal Rollback[/] --------------\n')
+            rollback_transactions(objs,refs)
 
-        if (refs):
-            console.print('\n----------[bold blue] Exception Raised Triggered Metal Rollback for references[/] --------------\n')
-            grouped_ref = defaultdict(list)
-            for item in refs:
-                grouped_ref[item.get("clt_name")].append(item.get("ref"))
-            for clt_name,ref in grouped_ref:
-                clt=self.client_parent().get_metal_collection(clt_name)
-                delete_many_refs(clt,ref)
-            console.print(f'[magenta]Deleting {len(refs)} reference(s)')
+def rollback_transactions(col,objs,refs):
+    if objs:
+        uuids=__(objs).get(['uuid'])
+        col.data.delete_many(where=Filter.by_id().contains_any(uuids))
+        console.print(f'[magenta]Deleting {len(uuids)} object(s)')
 
+    if refs:
+        grouped_ref = defaultdict(list)
+        for item in refs:
+            grouped_ref[item.get("clt_name")].append(item.get("ref"))
+        for clt_name,ref in grouped_ref:
+            clt=col.client_parent().get_metal_collection(clt_name)
+            delete_many_refs(clt,ref)
+        console.print(f'[magenta]Deleting {len(refs)} reference(s)')
+        
 def delete_many_refs(clt, refs):
     # try:
     for i in refs:
@@ -106,20 +109,56 @@ def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,in
         # raise
         # console.print_exception(show_locals=True)
 
-def check_ref_format(to_load):
-    if isinstance(to_load, list):
-        is_valid_length=all(len(obj) == 3 for obj in to_load)
-        is_valid_uuids=(all([is_uuid_valid(i[0], True)&is_uuid_valid(i[2], True) for i in to_load]))
-        ref_array_with_valid_uuid=is_valid_length & is_valid_uuids
-        if ref_array_with_valid_uuid:
-            return 'ref_array_with_valid_uuid'
+def check_format(col,to_load):
     if isinstance(to_load, dict):
-        is_valid_length = all([len(obj) == 3 for obj in to_load])
-        is_valid_keys=set([j for i in to_load for  j in list(i.keys())]) == set(('from_uuid', 'from_property', 'to'))
-        is_valid_uuids=(all([is_uuid_valid(i['from_uuid'], True)&is_uuid_valid(i['to'], True) for i in to_load]))
-        if is_valid_length&is_valid_keys&is_valid_uuids:
-            return 'ref_dict_with_valid_uuid'
-    return False
+        to_load = [to_load]
+    if isinstance(to_load, list) and isinstance(to_load[0], str):
+        to_load = [to_load]
+
+    allowed_fields = col.metal_props+col.metal_refs+['vector']
+
+    def is_ref_array_with_valid_uuid(to_load):
+        try:
+            if (isinstance(to_load[0], list) 
+            & all(len(obj) == 3 for obj in to_load) 
+            & all([is_uuid_valid(i[0], True)&is_uuid_valid(i[2], True) for i in to_load])):
+                return True
+            return False
+        except Exception:
+            pass
+    
+    def is_ref_dict_with_valid_uuid(to_load):
+        try:
+            if (isinstance(to_load[0], dict)
+            & all([len(obj) == 3 for obj in to_load])
+            & set([j for i in to_load for  j in list(i.keys())]) == set(('from_uuid', 'from_property', 'to'))
+            & all([is_uuid_valid(i['from_uuid'], True)&is_uuid_valid(i['to'], True) for i in to_load])):
+                return True
+        except Exception:
+            pass
+        return False
+    
+    def is_mix_dict(col,to_load,allowed_fields):
+        try:
+            k_clean=[k[2:] if k.startswith('<>') else k for i in to_load for k in i] 
+            unique_k=list(set(k_clean))
+            is_naming_ok = __(unique_k).apply(lambda x: x in allowed_fields)
+            if all(is_naming_ok): 
+                return True
+            # assert all(is_naming_ok), f'{__(k_clean).get(is_naming_ok)} not in {allowed_keys}'
+        except Exception:
+            pass
+        return False
+    
+    if is_ref_array_with_valid_uuid(to_load):
+        format = 'ref_array_with_valid_uuid'
+    elif is_ref_dict_with_valid_uuid(to_load):
+        format = 'ref_dict_with_valid_uuid'
+    elif is_mix_dict(col,to_load,allowed_fields):
+        format = 'mix_dict'
+    else:
+        raise Exception('Format not recognized')
+    return format
 
 def resolve_ref_to_load(col,to_load,ref_format):
     if ref_format == 'ref_dict_with_valid_uuid':
@@ -194,31 +233,33 @@ def resolve_refs(col,obj,refs,buffered_query={}):
             is2way=False
         elif '<>'+ref in obj:
             ref_value=obj['<>'+ref]
+            del obj_copy['<>'+ref]
             is2way=True
 
-        if is_uuid_valid(ref_value):
-            return obj
         opposite_clt_name=col.metal_context['ref_target'][col.name][ref]['target_clt']
-        opposite_clt = col.client_parent().get_metal_collection(opposite_clt_name)
-        
-        if ref_value not in buffered_query:
-            r=opposite_clt.q(ref_value,simplify_unique=False)
-            nb_obj = len(r)
-            if nb_obj==1:
-                obj_copy[ref] = r[0]['uuid']
-                buffered_query[ref_value] = r[0]['uuid']
-            elif nb_obj==0:
-                console.print("[bold red]no object found:[/] [underline]{}".format(ref_value))
-                return
-            elif nb_obj > 1:
-                console.print("[bold red]more than one matching object:[/] [underline]{}".format(ref_value))
-                return
+        opposite_clt=col.client_parent().get_metal_collection(opposite_clt_name)
+            
+        if not is_uuid_valid(ref_value):
+            if ref_value not in buffered_query:
+                r=opposite_clt.q(ref_value,simplify_unique=False)
+                nb_obj = len(r)
+                if nb_obj==1:
+                    obj_copy[ref] = r[0]['uuid']
+                    buffered_query[ref_value] = r[0]['uuid']
+                elif nb_obj==0:
+                    console.print("[bold red]no object found:[/] [underline]{}".format(ref_value))
+                    return
+                elif nb_obj > 1:
+                    console.print("[bold red]more than one matching object:[/] [underline]{}".format(ref_value))
+                    return
+            else:
+                obj_copy[ref] = buffered_query[ref_value]
         else:
-            obj_copy[ref] = buffered_query[ref_value]
+            obj_copy[ref] = ref_value
 
         if is2way:
             opposite_relation=col.get_opposite(ref)
-            opp_ref={'ref': {'from_uuid': buffered_query[ref_value], 'from_property': opposite_relation, 'to': generate_uuid5(str(obj)+str(random.random()))},
+            opp_ref={'ref': {'from_uuid': obj_copy[ref], 'from_property': opposite_relation, 'to': generate_uuid5(str(obj)+str(random.random()))},
                      '$metal_meta$': {'from_clt': opposite_clt_name, 'to_clt': col.name}}
             opp_refs.append(opp_ref)
     return {'obj': obj_copy, 'opp_refs': opp_refs}
@@ -433,7 +474,7 @@ def is_uuid_valid(uuid,bool_ouput=False):
 def translate_return_fields(return_fields):
     include_vector=False
     if return_fields == None:
-        return None, None
+        return None, None, False
     top_split = return_fields.split(';;')
     if len(top_split) == 2:
         return_properties, nested_segments = top_split
