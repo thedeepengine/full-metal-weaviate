@@ -32,7 +32,11 @@ class Metal:
     def nested(self):
         self.nestedtemp = True
         return self
-    
+
+    def startswith(self, prefix):
+        if isinstance(self.data, list):
+            return [item for item in self.data if item.startswith(prefix)]
+
     def get(self, fields, names = {}, pattern =''):
         if isinstance(self.data, dict):
             if isinstance(fields, FunctionType):
@@ -49,9 +53,9 @@ class Metal:
                     return [dict(filter(fields, i.items())) for i in self.data]
                 else:
                     return [i for i in self.data if fields(i)]
-            if type(fields) == str:
-                fields = [fields]
             if isinstance(fields, dict):
+                if type(fields) == str:
+                    fields = [fields]
                 if self.nestedtemp == True:
                     return [__(i).nested_to_flat(fields, pattern=pattern, names=names) for i in self.data]
                 res = [{k:v for k,v in i.items() if k in fields} for i in self.data]

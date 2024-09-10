@@ -133,25 +133,6 @@ chain_split=['hasCategory', 'title']
 ref_naming_checker(JeopardyQuestion, ['hasCatkegory', 'tikktle'])
 
 
-#########################################
-##### return_fields #####################
-#########################################
-
-'question,answer' # simple direct fields
-'question,answer;;hasCategory:title' # with second level
-'question,answer,vector:question,metadata:distance;;hasCategory:title'
-'vector:default',
-'vector:question',
-return_fields = 'question,answer;;hasCategory:title'
-return_fields = 'question,answer,vector;;hasCategory:title' 
-return_fields = 'question,answer,vector:question;;hasCategory:title' 
-
-return_fields='question,metadata:distance;;hasCategory:title,description|hasAssociatedQuestion:question' # same level
-return_fields='question,metadata:distance;;hasAssociatedQuestion:question;hasCategory:title' # nested
-
-
-translate_return_fields(return_fields)
-
 
 modelVectorizer = SentenceTransformer('/Users/paulhechinger/05data_shokunin/vectorizer/sentence_transformers/sentence-transformers_multi-qa-MiniLM-L6-cos-v1')
 
@@ -315,6 +296,67 @@ class TestFlatMethod(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main(argv=[''], exit=False)
+
+
+
+##########################################
+#### test translate_return_fields
+##########################################
+
+return_fields=[
+    'question,answer', # simple direct fields
+    'question,answer;;hasCategory:title', # with second level
+    'question,answer,vector:question,metadata:distance;;hasCategory:title',
+    'vector:question,answer',
+    'question,answer,vector;;hasCategory:title',
+    'question,answer,vector:question;;hasCategory:title',
+    'question,metadata:distance;;hasCategory:title,description|hasAssociatedQuestion:question', # same level
+    'question,metadata:distance;;hasAssociatedQuestion:question;hasCategory:title' # nested
+]
+
+res=[]
+for i in return_fields:
+    try:
+        res.append({i: translate_return_fields(i)})
+        pass
+    except Exception:
+        pass
+
+res[4]
+
+return_fields = list(res[2].keys())[0]
+
+
+allowed_fields=['a', 'b']
+regex_pattern = r'^(?:' + '|'.join(map(re.escape, allowed_fields)) + ')$'
+bool(re.match(regex_pattern, 'a'))
+
+compiler=get_expr(['a', 'b'])
+
+def gg():
+    fff=compiler.parseString('af=44')
+    print(fff)
+    return fff
+
+try:
+    gg()
+except StopProcessingException as e:
+    console.print(str(e))
+except Exception as e:
+    # Handle other exceptions that might occur
+    console.print('An unexpected error occurred.')
+
+
+try:
+    ff=compiler.parseString('af=44')
+except StopProcessingException as e:
+    console.print(e)
+except Exception as e:
+    # Handle other exceptions that might occur
+    console.print('An unexpected error occurred.')
+
+
+
 
 ##########################################
 #### test on raise 

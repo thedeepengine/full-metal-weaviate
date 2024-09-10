@@ -1,6 +1,6 @@
 # Full Metal Weaviate
 
-High level wrapper for Weaviate meant to reduce boilerplates and iterate faster. It proposes essentially two basic highly syntax-sugar functions:
+High level wrapper for Weaviate meant to reduce boilerplates and iterate faster. We propose essentially two basic high-sugary syntax functions:
 
 
 metal_query and metal_load (aliased as .q and .l)

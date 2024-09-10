@@ -10,7 +10,7 @@ from rich.traceback import install
 from weaviate.classes.query import MetadataQuery, Filter, QueryReference
 from weaviate.exceptions import WeaviateBaseError
 from weaviate.util import generate_uuid5,get_valid_uuid
-from pyparsing import ZeroOrMore, Combine, Regex, Group, Forward, infixNotation, opAssoc
+from pyparsing import ZeroOrMore, Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc
 
 from rich.table import Table
 
@@ -68,16 +68,11 @@ def delete_many_refs(clt, refs):
     # except Exception as e:
     #     print(e)
 
-def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,include_vector=False,return_raw=False,with_metadata=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
+def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,return_raw=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
     try:
         operations=self.metal_compiler.parseString(filters_str,parse_all=True)
-        w_filter=get_composed_weaviate_filter(self,operations[0])
-        return_properties, return_references, include_vector=translate_return_fields(return_fields)
-
-        if with_metadata:
-            return_metadata=MetadataQuery(distance=True)
-        else:
-            return_metadata = None
+        w_filter=get_composed_weaviate_filter(self,operations[0],context)
+        return_properties,return_references,return_metadata,include_vector=translate_return_fields(return_fields)
 
         if query_vector != None:
             res = self.query.near_vector(
@@ -96,10 +91,11 @@ def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,in
                 return_properties=return_properties,
                 return_references=return_references,
                 include_vector=include_vector,
+                return_metadata=return_metadata,
                 limit=limit)
             
         if not return_raw:
-            res = extract_object(res, include_vector, with_metadata)
+            res = extract_object(res, include_vector)
             if simplify_unique and len(res) == 1 and hasattr(w_filter, 'model_dump') and w_filter.model_dump()['operator'] == 'Equal':
                 res = res[0]
         return res
@@ -228,17 +224,13 @@ def resolve_refs(col,obj,refs,buffered_query={}):
     obj_copy = copy.deepcopy(obj)
     opp_refs=[]
     for ref in refs:
-        if ref in obj:
-            ref_value=obj[ref]
-            is2way=False
-        elif '<>'+ref in obj:
-            ref_value=obj['<>'+ref]
-            del obj_copy['<>'+ref]
-            is2way=True
+        is2way='<>'+ref in obj
+        ref_value = obj.pop('<>'+ref) if '<>'+ref in obj else obj.get(ref)
 
         opposite_clt_name=col.metal_context['ref_target'][col.name][ref]['target_clt']
         opposite_clt=col.client_parent().get_metal_collection(opposite_clt_name)
-            
+        opposite_relation=col.get_opposite(ref)
+
         if not is_uuid_valid(ref_value):
             if ref_value not in buffered_query:
                 r=opposite_clt.q(ref_value,simplify_unique=False)
@@ -258,7 +250,6 @@ def resolve_refs(col,obj,refs,buffered_query={}):
             obj_copy[ref] = ref_value
 
         if is2way:
-            opposite_relation=col.get_opposite(ref)
             opp_ref={'ref': {'from_uuid': obj_copy[ref], 'from_property': opposite_relation, 'to': generate_uuid5(str(obj)+str(random.random()))},
                      '$metal_meta$': {'from_clt': opposite_clt_name, 'to_clt': col.name}}
             opp_refs.append(opp_ref)
@@ -356,19 +347,27 @@ def group_opp_ref_and_load_ref(col,refs):
 ######### compile metal filters to weaviate filters
 ############################################################################
 
+class StopProcessingException(Exception):
+    """Custom exception to stop processing without an error trace."""
+    pass
+
 def custom_one_of(allowed_fields):
     regex_pattern = r'\b(?:' + '|'.join(allowed_fields) + r')\b|\w+'
     return Regex(regex_pattern)
 
 def one_of_checker(x, allowed_fields):
-    try:
-        regex_pattern = r'^(?:' + '|'.join(map(re.escape, allowed_fields)) + ')'
+    # try:
+        regex_pattern = r'^(?:' + '|'.join(map(re.escape, allowed_fields)) + ')$'
         is_match = bool(re.match(regex_pattern, x[0]))
         if not is_match:
-            raise # Exception(f'name not matching: {x}')
-    except Exception as e:
-        console.print(f'[bold magenta]Field name not found:[/] {x} \n [bold magenta]Existing fields:[/] {allowed_fields}')
-
+            raise StopProcessingException(f'[bold magenta]Field name not found:[/] {x} \n[bold magenta]Existing fields:[/] {allowed_fields}')
+    # except StopProcessingException as e:
+    #     raise
+    # except Exception as e:
+    #     console.print(f'[bold magenta]Field name not found:[/] {x} \n[bold magenta]Existing fields:[/] {allowed_fields}')
+    #     console.print_exception(extra_lines=5,show_locals=True)
+    #     raise
+    
 def get_ident(allowed_fields): # sub optimal checking for authorised fields
     base_ident=custom_one_of(allowed_fields)
     base_ident.add_parse_action(lambda x: one_of_checker(x,allowed_fields))
@@ -377,18 +376,21 @@ def get_ident(allowed_fields): # sub optimal checking for authorised fields
     return ident
 
 def get_expr(allowed_fields):
-    ident = get_ident(allowed_fields)
-    operator = Regex("!=|=|<=|<|>=|>|~|any|all").setName("operator")
-    value = Regex(r'(?:[^=<>~!&|()\s"]+|"[^"]*")(?:\s+[^=<>~!&|()\s"]+)*')
-    condition = Group(ident + operator + value)
-    lpar, rpar = map(Literal, "()")
-    expr = Forward()
-    atom = condition | Group(lpar + expr + rpar)
-    expr <<= infixNotation(atom, [
-        ('&', 2, opAssoc.LEFT, lambda t: {"and": [t[0][0], t[0][2]]}),
-        ('|', 2, opAssoc.LEFT, lambda t: {"or": [t[0][0], t[0][2]]})
-    ])
-    return expr
+    try:
+        ident = get_ident(allowed_fields)
+        operator = Regex("!=|=|<=|<|>=|>|~|any|all").setName("operator")
+        value = Regex(r'(?:[^=<>~!&|()\s"]+|"[^"]*")(?:\s+[^=<>~!&|()\s"]+)*')
+        condition = Group(ident + operator + value)
+        lpar, rpar = map(Literal, "()")
+        expr = Forward()
+        atom = condition | Group(lpar + expr + rpar)
+        expr <<= infixNotation(atom, [
+            ('&', 2, opAssoc.LEFT, lambda t: {"and": [t[0][0], t[0][2]]}),
+            ('|', 2, opAssoc.LEFT, lambda t: {"or": [t[0][0], t[0][2]]})
+        ])
+        return expr
+    except StopProcessingException as e:
+        console.print(e)
 
 def get_composed_weaviate_filter(col,operations,context={}):
     if isinstance(operations, list) and isinstance(operations[0], dict):
@@ -440,7 +442,6 @@ def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
 
         refs,prop=prop_split[:-1], prop_split[-1]
         for i in refs:
-            safe_jmes_search('fields.JeopardyCategory.properties', JeopardyQuestion.metal_context).unwrap()
             w_filter = w_filter.by_ref(link_on=i)
         if prop == 'uuid':
             w_filter = w_filter.by_id()
@@ -471,32 +472,40 @@ def is_uuid_valid(uuid,bool_ouput=False):
     except TypeError:
         return False
 
+
+import operator as op
+
+
+
+
 def translate_return_fields(return_fields):
-    include_vector=False
     if return_fields == None:
         return None, None, False
+    
+    ret_prop,ret_ref,return_metadata,nested_segments=None,None,None,None
+    include_vector=False
     top_split = return_fields.split(';;')
     if len(top_split) == 2:
-        return_properties, nested_segments = top_split
-        return_properties = [prop.strip() for prop in return_properties.split(',')]
-        if 'vector' in return_properties:
+        ret_prop, nested_segments = top_split
+        ret_prop = [prop.strip() for prop in ret_prop.split(',')]
+        if 'vector' in ret_prop:
             include_vector = True
-            return_properties=[i for i in return_properties if i != 'vector']
-        if (vector_str:=[i for i in return_properties if i.startswith('vector:')]):
-            vector_names=vector_str[0].split(':')[1].split(',')
-            include_vector=vector_names
-            return_properties=[i for i in return_properties if i.startswith('vector:')]
+            ret_prop.remove('vector')
+        if (vector_str:=__(ret_prop).startswith('vector:')):
+            include_vector=vector_str[0].split(':')[1].split(',')
+            ret_prop.remove(vector_str[0])
+        if (meta:=__(ret_prop).startswith('metadata:')):
+            meta_bool={i:True for i in meta[0].split(':')[1].split(',')}
+            return_metadata=MetadataQuery(**meta_bool)
+            ret_prop.remove(meta[0])
     else:
         if ':' not in top_split[0]:
-            return_properties = [prop.strip() for prop in top_split[0].split(',')]
-            nested_segments = None
-            all_references = None
+            ret_prop = [prop.strip() for prop in top_split[0].split(',')]
         else:
-            return_properties = None
             nested_segments = top_split[0]
     
     if nested_segments != None:
-        all_references = []
+        ret_ref = []
         all_paths = nested_segments.split('|')
         for path in all_paths:
             levels = path.split(';')
@@ -510,12 +519,12 @@ def translate_return_fields(return_fields):
                     link_on = level.strip()
                     properties_list = []
                 current_reference = QueryReference(link_on=link_on, return_properties=properties_list, return_references=current_reference)
-            all_references.append(current_reference)
+            ret_ref.append(current_reference)
         
-    return return_properties,all_references,include_vector
+    return ret_prop,ret_ref,return_metadata,include_vector
 
 
-def extract_object(res, include_vector=False, with_metadata=False):
+def extract_object(res, include_vector=False):
     # input_string = "hasChildren:name,surname;hasChildren:name"
     def recursive_extract(item):
         result = {
@@ -527,13 +536,11 @@ def extract_object(res, include_vector=False, with_metadata=False):
             for k, v in item.references.items():
                 result['references'][k] = [recursive_extract(j) for j in v.objects]
         
-        if with_metadata and hasattr(item, 'metadata'):
-            if hasattr(item.metadata, 'distance'):
-                if item.metadata.distance != None:
-                    result['metadata'] = {'distance': item.metadata.distance}
-            if hasattr(item.metadata, 'score'):
-                if item.metadata.score != None:
-                    result['metadata'] = {'score': item.metadata.score}
+        if hasattr(item, 'metadata'):
+            if hasattr(item.metadata, 'distance') and item.metadata.distance != None:
+                result['metadata'] = {'distance': item.metadata.distance}
+            if hasattr(item.metadata, 'score') and item.metadata.score != None:
+                result['metadata'] = {'score': item.metadata.score}
 
         if include_vector and hasattr(item, 'vector'):
             result['vector'] = item.vector
