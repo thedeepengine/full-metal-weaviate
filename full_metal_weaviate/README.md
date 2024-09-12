@@ -196,7 +196,7 @@ opposite_refs = ['JeopardyQuestion.hasCategory<>JeopardyCategory.hasQuestion',
                  'JeopardyQuestion.hasOwner<>JeopardyUsers.ownerOf']
 
 client=get_metal_client(weaviate_client)
-client.register_opposite_ref(opposite_refs)
+client.metal.register_opposite_ref(opposite_refs)
 # then load your data using <>:
 JeopardyQuestion=client.get_metal_collection('JeopardyQuestion')
 JeopardyQuestion.metal_load({'question': 'my question', '<>hasCategory': category_uuid})

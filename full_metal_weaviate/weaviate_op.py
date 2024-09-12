@@ -24,7 +24,7 @@ def metal_load(self,to_load,dry_run=True):
     
     """
     try:
-        self.client_parent().init_metal_batch()
+        self.metal.original_client().init_metal_batch()
         ref_format=check_format(self,to_load)
         if ref_format in ['ref_array_with_valid_uuid', 'ref_dict_with_valid_uuid']:
             resolved_load=resolve_ref_to_load(self,to_load,ref_format)
@@ -41,8 +41,8 @@ def metal_load(self,to_load,dry_run=True):
                 uuids=resolve_ref_uuid_and_metal_load(self,resolved_load)
         return uuids
     except Exception as e:
-        objs=self.client_parent().current_transaction_object
-        refs=self.client_parent().current_transaction_reference
+        objs=self.metal.original_client().current_transaction_object
+        refs=self.metal.original_client().current_transaction_reference
         console.print_exception(extra_lines=5,show_locals=True)
         if (objs or refs):
             console.print('\n----------[bold blue] Exception Raised Triggered Metal Rollback[/] --------------\n')
@@ -59,7 +59,7 @@ def rollback_transactions(col,objs,refs):
         for item in refs:
             grouped_ref[item.get("clt_name")].append(item.get("ref"))
         for clt_name,ref in grouped_ref:
-            clt=col.client_parent().get_metal_collection(clt_name)
+            clt=col.metal.original_client().get_metal_collection(clt_name)
             delete_many_refs(clt,ref)
         console.print(f'[magenta]Deleting {len(refs)} reference(s)')
         
@@ -72,7 +72,7 @@ def delete_many_refs(clt, refs):
 
 def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,return_raw=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
     try:
-        operations=self.metal_compiler.parseString(filters_str,parse_all=True)
+        operations=self.metal.compiler.parseString(filters_str,parse_all=True)
         w_filter=get_composed_weaviate_filter(self,operations[0],context)
         return_properties,return_references,return_metadata,include_vector=translate_return_fields(return_fields)
 
@@ -113,7 +113,7 @@ def check_format(col,to_load):
     if isinstance(to_load, list) and isinstance(to_load[0], str):
         to_load = [to_load]
 
-    allowed_fields = col.metal_props+col.metal_refs+['vector']
+    allowed_fields = col.metal.props+col.metal.refs+['vector']
 
     def is_ref_array_with_valid_uuid(to_load):
         try:
@@ -165,8 +165,8 @@ def resolve_ref_to_load(col,to_load,ref_format):
 
     if ref_format == 'ref_array_with_valid_uuid':
         unique_refs=list(set([i[1][2:] for i in to_load if i[1].startswith('<>')]))
-        opp_refs={i: col.get_opposite(i) for i in unique_refs}
-        opp_clt_name={i: col.metal_context['ref_target'][col.name][i]['target_clt'] for i in unique_refs}
+        opp_refs={i: col.metal.get_opposite(i) for i in unique_refs}
+        opp_clt_name={i: col.metal.context['ref_target'][col.name][i]['target_clt'] for i in unique_refs}
         res=[]
         for i in to_load:
             ref_temp=[]
@@ -187,11 +187,11 @@ def resolve_mix_to_load(col,to_load):
     if isinstance(to_load, dict): to_load=[to_load]
     
     for obj in to_load:
-        allowed_keys = col.metal_props+col.metal_refs+['vector']
+        allowed_keys = col.metal.props+col.metal.refs+['vector']
         k_clean=[i[2:] if i.startswith('<>') else i for i in obj] 
         is_naming_ok = __(k_clean).apply(lambda x: x in allowed_keys)
         assert all(is_naming_ok), f'{__(k_clean).get(is_naming_ok)} not in {allowed_keys}'
-        refs=__(k_clean).get(lambda x: x in col.metal_refs)
+        refs=__(k_clean).get(lambda x: x in col.metal.refs)
         r=resolve_refs(col,obj,refs,buffered_query)
         ready_obj.append(r)
     return ready_obj
@@ -203,7 +203,7 @@ def resolve_ref_uuid_and_metal_load(col,ready_objs):
     So first create all obj props, once uuids are available, associate with reversed way
     ref and then load pure refs.
     """
-    prop_names, ref_names = col.metal_context['fields'][col.name].values()
+    prop_names, ref_names = col.metal.context['fields'][col.name].values()
     to_load_ready=__(ready_objs).apply(lambda x: ({'prop':__(x['obj']).get(prop_names),
                                                 'ref': __(x['obj']).get(ref_names),
                                                 'vector': __(x['obj']).get('vector')}))
@@ -229,9 +229,9 @@ def resolve_refs(col,obj,refs,buffered_query={}):
         is2way='<>'+ref in obj
         ref_value = obj.pop('<>'+ref) if '<>'+ref in obj else obj.get(ref)
 
-        opposite_clt_name=col.metal_context['ref_target'][col.name][ref]['target_clt']
-        opposite_clt=col.client_parent().get_metal_collection(opposite_clt_name)
-        opposite_relation=col.get_opposite(ref)
+        opposite_clt_name=col.metal.context['ref_target'][col.name][ref]['target_clt']
+        opposite_clt=col.metal.original_client().get_metal_collection(opposite_clt_name)
+        opposite_relation=col.metal.get_opposite(ref)
 
         if not is_uuid_valid(ref_value):
             if ref_value not in buffered_query:
@@ -282,7 +282,7 @@ def batch_load_object(clt, objs):
             if all(obj.get(key) is None for key in ['prop', 'ref','vector']):
                 raise Exception('all keys are None for batch load object')
             temp_uuid=batch.add_object(properties=obj.get('prop'),references=obj.get('ref'),vector=obj.get('vector'))
-            clt.client_parent().append_transaction(clt.name,temp_uuid,'object')
+            clt.metal.original_client().append_transaction(clt.name,temp_uuid,'object')
             uuids.append(temp_uuid)
     show_batch_error(clt,batch)
     return uuids
@@ -293,7 +293,7 @@ def batch_load_references(clt, refs):
     with clt.batch.dynamic() as batch:
         for ref in refs:
             batch.add_reference(from_uuid=ref['from_uuid'],from_property=ref['from_property'],to=ref['to'])
-            clt.client_parent().append_transaction(clt.name,ref,'reference')
+            clt.metal.original_client().append_transaction(clt.name,ref,'reference')
     show_batch_error(clt,batch)
     
 def show_batch_error(clt,batch):
@@ -332,7 +332,7 @@ def group_opp_ref_and_load_ref(col,refs):
     for group in group_by_clt:
         group_refs=[i['ref'] for i in group]
         clt_name=group[0]['$metal_meta$']['from_clt']
-        from_clt=buffer_clt.get(clt_name, col.client_parent().get_metal_collection(clt_name))
+        from_clt=buffer_clt.get(clt_name, col.metal.original_client().get_metal_collection(clt_name))
         if clt_name not in buffer_clt:
             buffer_clt[clt_name]=from_clt
         batch_load_references(from_clt,group_refs)
@@ -407,7 +407,7 @@ def get_composed_weaviate_filter(col,operations,context={}):
 def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
     if prop in context:
         value = context[prop]
-    prop_names, ref_names = col.metal_props, col.metal_refs
+    prop_names, ref_names = col.metal.props, col.metal.refs
     w_filter=Filter
     prop_split=prop.split('.')
     if len(prop_split) == 1:
@@ -424,16 +424,16 @@ def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
                 raise Exception(f'property {prop_split[0]} does not exist, exsiting props: {prop_names}')
     elif len(prop_split) > 1:
         def ref_naming_checker(col,chain_split):
-            assert chain_split[0] in col.metal_refs, f'{chain_split[0]} not in available reference fields: {col.metal_refs}'
-            target_clt=__(col.metal_context).get(f'ref_target.{col.name}.{chain_split[0]}.target_clt')
-            target_fields=__(col.metal_context).get(f'fields.{target_clt}')
+            assert chain_split[0] in col.metal.refs, f'{chain_split[0]} not in available reference fields: {col.metal.refs}'
+            target_clt=__(col.metal.context).get(f'ref_target.{col.name}.{chain_split[0]}.target_clt')
+            target_fields=__(col.metal.context).get(f'fields.{target_clt}')
 
             for i,v in enumerate(chain_split[1:]):
                 if i == len(chain_split[1:])-1:
                     assert v in target_fields['properties'], f'{v} not in available property fields {target_fields["properties"]}'
                 else:
-                    target_clt=__(col.metal_context).get(f'ref_target.{col.name}.{v}.target_clt')
-                    target_fields=__(col.metal_context).get(f'fields.{target_clt}')
+                    target_clt=__(col.metal.context).get(f'ref_target.{col.name}.{v}.target_clt')
+                    target_fields=__(col.metal.context).get(f'fields.{target_clt}')
                     fields = target_fields['properties']+target_fields['references']
                     assert v in fields, f'{v} not in available reference fields {fields}'
             

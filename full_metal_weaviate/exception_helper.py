@@ -4,7 +4,7 @@ class oppo(Exception):
 
 
 def noOppositeFound(self,key):
-    existing_opposite=self.get_opposite()
+    existing_opposite=self.metal.get_opposite()
     if len(existing_opposite) == 0:
         return """
         [bold Magenta]Error:[/]

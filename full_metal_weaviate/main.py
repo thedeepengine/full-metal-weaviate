@@ -47,25 +47,20 @@ get_metal_client = metal
 
 def get_metal_collection(self,name,force_reload=False):
     try:
-        if not force_reload and name in getattr(self,'metal_collection',[]):
-            return getattr(self,'metal_collection')[name]
+        if not force_reload and name in getattr(self,'buffer_clt',[]):
+            return getattr(self,'buffer_clt')[name]
         else:
             col = self.collections.get(name)
             if is_clt_existing(col):
-                col.client_parent=weakref.ref(self)
-                col.metal_context=set_weaviate_context(self)
-                col.metal_props=safe_jmes_search(f'fields.{name}.properties', col.metal_context).unwrap()
-                col.metal_refs=safe_jmes_search(f'fields.{name}.references', col.metal_context).unwrap()
-                col.metal_compiler=get_expr(col.metal_props+col.metal_refs+['uuid'])
-                col.q=MethodType(metal_query, col)
+                col.metal=MetalContext(self, name)
                 col.metal_query=MethodType(metal_query, col)
-                col.get_opposite=MethodType(get_opposite, col)
-                col.register_opposite_ref=MethodType(register_opposite_ref, col)
-                col.l=MethodType(metal_load, col)
+                col.q=col.metal_query
                 col.metal_load=MethodType(metal_load, col)
-                if not hasattr(self, 'metal_collection'):
-                    setattr(self, 'metal_collection', {})
-                getattr(self, 'metal_collection')[name] = col
+                col.l=col.metal_load
+
+                if not hasattr(self, 'buffer_clt'):
+                    setattr(self, 'buffer_clt', {})
+                getattr(self, 'buffer_clt')[name] = col
                 return col
             else:
                 raise StopProcessingException(f'[bold red]Error:[/] [underline] Collection {name} does not exist')
@@ -89,9 +84,9 @@ def append_transaction(self,clt_name,data,trans_type):
 def get_opposite(self, key=None):
     try:
         if key == None:
-            return jmespath.search(f'ref_target.{self.name}', self.metal_context) 
+            return jmespath.search(f'ref_target.{self.name}', self.context) 
         else:
-            opposite=jmespath.search(f'ref_target.{self.name}.{key}.opposite', self.metal_context)
+            opposite=jmespath.search(f'ref_target.{self.name}.{key}.opposite', self.context)
             if opposite == None:
                 raise
             else:
@@ -99,6 +94,17 @@ def get_opposite(self, key=None):
     except Exception as e:
         console.print(f'No opposite found for {key}. Show example ')
 
+class MetalContext:
+    def __init__(self, client_weaviate, clt_name):
+        self.name=clt_name
+        self.context=set_weaviate_context(client_weaviate)
+        self.props=safe_jmes_search(f'fields.{clt_name}.properties', self.context).unwrap()
+        self.refs=safe_jmes_search(f'fields.{clt_name}.references', self.context).unwrap()
+        self.compiler=get_expr(self.props+self.refs+['uuid'])
+        self.original_client=weakref.ref(client_weaviate)
+        self.get_opposite=MethodType(get_opposite, self)
+        self.register_opposite_ref=MethodType(register_opposite_ref, self)
+  
 def set_weaviate_context(client_weaviate):
     all_schema = client_weaviate.collections.list_all(simple=False)
     fields={k: {'properties': [i.name for i in v.properties], 'references': [i.name for i in v.references]} for k,v in all_schema.items()}
@@ -107,10 +113,10 @@ def set_weaviate_context(client_weaviate):
     return {'fields': fields, 'types': types, 'ref_target': ref_target}
 
 def register_opposite_ref(self,source_ref,opposite_ref):
-    self.metal_context['ref_target'][self.name][source_ref]['opposite'] = opposite_ref
-    opposite_clt_name = self.metal_context['ref_target'][self.name][source_ref]['target_clt']
-    opposite_clt=self.client_parent().get_metal_collection(opposite_clt_name)
-    opposite_clt.metal_context['ref_target'][opposite_clt_name][opposite_ref]['opposite'] = source_ref
+    self.context['ref_target'][self.name][source_ref]['opposite'] = opposite_ref
+    opposite_clt_name = self.context['ref_target'][self.name][source_ref]['target_clt']
+    opposite_clt=self.original_client().get_metal_collection(opposite_clt_name)
+    opposite_clt.metal.context['ref_target'][opposite_clt_name][opposite_ref]['opposite'] = source_ref
 
 def extract_opposite_refs(pattern):
     try:
@@ -136,7 +142,7 @@ def is_metal_client(client):
     return hasattr(client, 'get_metal_collection')
 
 def is_metal_collection(clt):
-    return hasattr(clt, 'metal_context')
+    return hasattr(clt, 'metal')
 
 def register_opposite(client,opposite_refs):
     buffer_clt = {}
@@ -146,7 +152,7 @@ def register_opposite(client,opposite_refs):
         for clt_name in [clt_source,clt_target]:
             if clt_name not in buffer_clt:
                 buffer_clt[clt_name]=client.get_metal_collection(clt_name) 
-        buffer_clt[clt_source].register_opposite_ref(rel_source,rel_target)
+        buffer_clt[clt_source].metal.register_opposite_ref(rel_source,rel_target)
 
 def get_weaviate_client(weaviate_client_url):
     api_key_weaviate=os.getenv('AUTHENTICATION_APIKEY_ALLOWED_KEYS')
