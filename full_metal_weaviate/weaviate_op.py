@@ -11,16 +11,18 @@ from weaviate.classes.query import MetadataQuery, Filter, QueryReference
 from weaviate.exceptions import WeaviateBaseError
 from weaviate.util import generate_uuid5,get_valid_uuid
 from pyparsing import ZeroOrMore, Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc
-
 from rich.table import Table
 
-
-from full_metal_weaviate.container_op import __, safe_jmes_search, BooleanTest
+from full_metal_weaviate.container_op import __
+from full_metal_weaviate.utils import StopProcessingException
 
 console = Console()
 
 
 def metal_load(self,to_load,dry_run=True):
+    """
+    
+    """
     try:
         self.client_parent().init_metal_batch()
         ref_format=check_format(self,to_load)
@@ -347,10 +349,6 @@ def group_opp_ref_and_load_ref(col,refs):
 ######### compile metal filters to weaviate filters
 ############################################################################
 
-class StopProcessingException(Exception):
-    """Custom exception to stop processing without an error trace."""
-    pass
-
 def custom_one_of(allowed_fields):
     regex_pattern = r'\b(?:' + '|'.join(allowed_fields) + r')\b|\w+'
     return Regex(regex_pattern)
@@ -471,12 +469,6 @@ def is_uuid_valid(uuid,bool_ouput=False):
         return False
     except TypeError:
         return False
-
-
-import operator as op
-
-
-
 
 def translate_return_fields(return_fields):
     if return_fields == None:

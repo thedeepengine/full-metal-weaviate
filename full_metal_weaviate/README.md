@@ -201,3 +201,62 @@ client.register_opposite_ref(opposite_refs)
 JeopardyQuestion=client.get_metal_collection('JeopardyQuestion')
 JeopardyQuestion.metal_load({'question': 'my question', '<>hasCategory': category_uuid})
 ```
+
+## Rollback on failure
+
+When loading using metal_load, if an exception is raised during the loading process, there is a default rollback mechanism that would delete data already loaded into Weaviate that are part of this very same loading batch.
+
+
+rather than saying the properties you want to test, you precise the meta properties
+
+
+- implicit dependences created between parameters
+
+
+- atomic containers
+
+- dict
+  - nested dict and non nested dict
+  - single field, multiple fields
+  - by function
+  - empty dict
+
+- list
+  - by indexes
+    - single index
+    - multiple indexes
+  - by string
+    - single value
+    - multiple values
+  - by function
+
+- composed containers
+  - dict of dicts
+  - dict of lists
+  - list of lists
+  - list of dicts
+  - deeply nested dict
+    - deeply nested dict not pure keys
+    - deeply nested dict pure keys
+
+
+two incommensurate axis:
+
+inputed data: 
+
+fields to query:
+  - by function
+  - by indexes
+    - single index
+    - multiple indexes
+  - by string
+    - single value
+    - multiple values
+  - by jmes path
+  
+
+
+File is king. Meaning that if you change something in the file unless you explicitely ask for the deep engine to pick it up, it wont.
+
+We decouple the system the meta information from the value system. 
+Meaning that there is only one place you have to manage your tests, names and categories, your test ontologies. You can clearly defines each incommensurables axis and then combine them. 

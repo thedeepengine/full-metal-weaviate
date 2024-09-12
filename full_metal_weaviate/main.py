@@ -1,3 +1,19 @@
+"""
+This is an example code for Sphinx tutorial!
+
+* Here is a list!
+* **bold** text :)
+* *italic* text!
+* Code style: ``cool_variable=42``
+
+.. note::
+    A cool note block!
+
+.. warning::
+    Also a cool warning block!
+
+"""
+
 import jmespath
 import os
 import weakref
@@ -10,11 +26,16 @@ from weaviate.auth import AuthApiKey
 
 from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_expr
 from full_metal_weaviate.container_op import __, safe_jmes_search
-from full_metal_weaviate.exception_helper import noOppositeFound
+
+from full_metal_weaviate.utils import StopProcessingException
 
 console = Console()
 
 def metal(client_weaviate,opposite_refs=None):
+    """
+    Parameters
+
+    """
     client_weaviate.get_metal_collection = MethodType(get_metal_collection, client_weaviate)
     client_weaviate.append_transaction = MethodType(append_transaction, client_weaviate)
     client_weaviate.init_metal_batch = MethodType(init_metal_batch, client_weaviate)
@@ -25,30 +46,34 @@ def metal(client_weaviate,opposite_refs=None):
 get_metal_client = metal
 
 def get_metal_collection(self,name,force_reload=False):
-    if not force_reload and name in getattr(self,'metal_collection',[]):
-        return getattr(self,'metal_collection')[name]
-    else:
-        col = self.collections.get(name)
-        if is_clt_existing(col):
-            col.client_parent=weakref.ref(self)
-            col.metal_context=set_weaviate_context(self)
-            col.metal_props=safe_jmes_search(f'fields.{name}.properties', col.metal_context).unwrap()
-            col.metal_refs=safe_jmes_search(f'fields.{name}.references', col.metal_context).unwrap()
-            col.metal_compiler=get_expr(col.metal_props+col.metal_refs+['uuid'])
-            col.q=MethodType(metal_query, col)
-            col.metal_query=MethodType(metal_query, col)
-            col.get_opposite=MethodType(get_opposite, col)
-            col.register_opposite_ref=MethodType(register_opposite_ref, col)
-            col.l=MethodType(metal_load, col)
-            col.metal_load=MethodType(metal_load, col)
-            if not hasattr(self, 'metal_collection'):
-                setattr(self, 'metal_collection', {})
-            getattr(self, 'metal_collection')[name] = col
-            return col
+    try:
+        if not force_reload and name in getattr(self,'metal_collection',[]):
+            return getattr(self,'metal_collection')[name]
         else:
-            console.print("[bold red]Error:[/] [underline]Collection does not exist/typo: {}".format(name))
+            col = self.collections.get(name)
+            if is_clt_existing(col):
+                col.client_parent=weakref.ref(self)
+                col.metal_context=set_weaviate_context(self)
+                col.metal_props=safe_jmes_search(f'fields.{name}.properties', col.metal_context).unwrap()
+                col.metal_refs=safe_jmes_search(f'fields.{name}.references', col.metal_context).unwrap()
+                col.metal_compiler=get_expr(col.metal_props+col.metal_refs+['uuid'])
+                col.q=MethodType(metal_query, col)
+                col.metal_query=MethodType(metal_query, col)
+                col.get_opposite=MethodType(get_opposite, col)
+                col.register_opposite_ref=MethodType(register_opposite_ref, col)
+                col.l=MethodType(metal_load, col)
+                col.metal_load=MethodType(metal_load, col)
+                if not hasattr(self, 'metal_collection'):
+                    setattr(self, 'metal_collection', {})
+                getattr(self, 'metal_collection')[name] = col
+                return col
+            else:
+                raise StopProcessingException(f'[bold red]Error:[/] [underline] Collection {name} does not exist')
+    except StopProcessingException as e:
+        console.print(str(e))
 
 go_metal = get_metal_collection
+
 def init_metal_batch(self):
     self.current_transaction_object = []
     self.current_transaction_reference = []
@@ -114,33 +139,14 @@ def is_metal_collection(clt):
     return hasattr(clt, 'metal_context')
 
 def register_opposite(client,opposite_refs):
-    try:
-        buffer_clt = {}
-        formatted_opposite=[extract_opposite_refs(i) for i in opposite_refs]
-        for opposite_ref in formatted_opposite:
-            clt_source_name=opposite_ref['clt_source']
-            clt_target_name=opposite_ref['clt_target']
-            for clt_name in [clt_source_name,clt_target_name]:
-                if clt_name not in buffer_clt:
-                    clt=client.get_metal_collection(clt_name)
-                    if is_clt_existing(clt): 
-                        buffer_clt[clt_name] = clt
-                    else:
-                        console.print("[bold red]Error:[/] [underline]Most likely collection does not exist or typo: {}".format(clt_source_name))
-                        raise
-
-            buffer_clt[clt_source_name].register_opposite_ref(opposite_ref['rel_source'],opposite_ref['rel_target'])
-    except Exception as e:
-        str_e = str(e)
-        if str_e.startswith('[bold yellow]'):
-            console.print(str(e))
-        else:
-            console.print_exception(show_locals=True)
-            console.print(str(e))
-    # finally:
-    #     if len(buffer_clt) > 0:
-    #         for k,v in buffer_clt.items():
-    #             print(k, v.get_opposite())
+    buffer_clt = {}
+    formatted_opposite=[extract_opposite_refs(i) for i in opposite_refs]
+    for ref in formatted_opposite:
+        clt_source,rel_source,clt_target,rel_target=ref['clt_source'],ref['rel_source'],ref['clt_target'],ref['rel_target']
+        for clt_name in [clt_source,clt_target]:
+            if clt_name not in buffer_clt:
+                buffer_clt[clt_name]=client.get_metal_collection(clt_name) 
+        buffer_clt[clt_source].register_opposite_ref(rel_source,rel_target)
 
 def get_weaviate_client(weaviate_client_url):
     api_key_weaviate=os.getenv('AUTHENTICATION_APIKEY_ALLOWED_KEYS')
