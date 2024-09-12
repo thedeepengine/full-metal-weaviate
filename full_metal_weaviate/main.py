@@ -31,19 +31,14 @@ from full_metal_weaviate.utils import StopProcessingException
 
 console = Console()
 
-def metal(client_weaviate,opposite_refs=None):
+def get_metal_client(client_weaviate,opposite_refs=None):
     """
-    Parameters
-
     """
     client_weaviate.get_metal_collection = MethodType(get_metal_collection, client_weaviate)
-    client_weaviate.append_transaction = MethodType(append_transaction, client_weaviate)
-    client_weaviate.init_metal_batch = MethodType(init_metal_batch, client_weaviate)
+    client_weaviate.metal=MetalClientContext(client_weaviate)
     if opposite_refs != None:
         register_opposite(client_weaviate,opposite_refs)
     return client_weaviate
-
-get_metal_client = metal
 
 def get_metal_collection(self,name,force_reload=False):
     try:
@@ -52,7 +47,7 @@ def get_metal_collection(self,name,force_reload=False):
         else:
             col = self.collections.get(name)
             if is_clt_existing(col):
-                col.metal=MetalContext(self, name)
+                col.metal=MetalCollectionContext(self, name)
                 col.metal_query=MethodType(metal_query, col)
                 col.q=col.metal_query
                 col.metal_load=MethodType(metal_load, col)
@@ -70,16 +65,16 @@ def get_metal_collection(self,name,force_reload=False):
 go_metal = get_metal_collection
 
 def init_metal_batch(self):
-    self.current_transaction_object = []
-    self.current_transaction_reference = []
+    self.metal.current_transaction_object = []
+    self.metal.current_transaction_reference = []
 
 def append_transaction(self,clt_name,data,trans_type):
     if not hasattr(self, 'current_transaction_object') or not hasattr(self, 'current_transaction_reference'):
         raise Exception('should call init_metal_batch first')
     if trans_type == 'object':
-        self.current_transaction_object.append({'clt_name': clt_name, 'uuid': data})
+        self.metal.current_transaction_object.append({'clt_name': clt_name, 'uuid': data})
     if trans_type == 'reference':
-        self.current_transaction_reference.append({'clt_name': clt_name, 'ref': data})
+        self.metal.current_transaction_reference.append({'clt_name': clt_name, 'ref': data})
 
 def get_opposite(self, key=None):
     try:
@@ -94,7 +89,12 @@ def get_opposite(self, key=None):
     except Exception as e:
         console.print(f'No opposite found for {key}. Show example ')
 
-class MetalContext:
+class MetalClientContext:
+    def __init__(self, client_weaviate):
+        self.append_transaction = MethodType(append_transaction, client_weaviate)
+        self.init_metal_batch = MethodType(init_metal_batch, client_weaviate)
+  
+class MetalCollectionContext:
     def __init__(self, client_weaviate, clt_name):
         self.name=clt_name
         self.context=set_weaviate_context(client_weaviate)

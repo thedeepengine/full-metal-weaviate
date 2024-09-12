@@ -24,7 +24,7 @@ def metal_load(self,to_load,dry_run=True):
     
     """
     try:
-        self.metal.original_client().init_metal_batch()
+        self.metal.original_client().metal.init_metal_batch()
         ref_format=check_format(self,to_load)
         if ref_format in ['ref_array_with_valid_uuid', 'ref_dict_with_valid_uuid']:
             resolved_load=resolve_ref_to_load(self,to_load,ref_format)
@@ -41,8 +41,8 @@ def metal_load(self,to_load,dry_run=True):
                 uuids=resolve_ref_uuid_and_metal_load(self,resolved_load)
         return uuids
     except Exception as e:
-        objs=self.metal.original_client().current_transaction_object
-        refs=self.metal.original_client().current_transaction_reference
+        objs=self.metal.original_client().metal.current_transaction_object
+        refs=self.metal.original_client().metal.current_transaction_reference
         console.print_exception(extra_lines=5,show_locals=True)
         if (objs or refs):
             console.print('\n----------[bold blue] Exception Raised Triggered Metal Rollback[/] --------------\n')
@@ -282,7 +282,7 @@ def batch_load_object(clt, objs):
             if all(obj.get(key) is None for key in ['prop', 'ref','vector']):
                 raise Exception('all keys are None for batch load object')
             temp_uuid=batch.add_object(properties=obj.get('prop'),references=obj.get('ref'),vector=obj.get('vector'))
-            clt.metal.original_client().append_transaction(clt.name,temp_uuid,'object')
+            clt.metal.original_client().metal.append_transaction(clt.name,temp_uuid,'object')
             uuids.append(temp_uuid)
     show_batch_error(clt,batch)
     return uuids
@@ -293,7 +293,7 @@ def batch_load_references(clt, refs):
     with clt.batch.dynamic() as batch:
         for ref in refs:
             batch.add_reference(from_uuid=ref['from_uuid'],from_property=ref['from_property'],to=ref['to'])
-            clt.metal.original_client().append_transaction(clt.name,ref,'reference')
+            clt.metal.original_client().metal.append_transaction(clt.name,ref,'reference')
     show_batch_error(clt,batch)
     
 def show_batch_error(clt,batch):
