@@ -91,18 +91,19 @@ client=metal(client_weaviate)
 
 ### jeopardy collection
 
-opposite_refs = ['JeopardyQuestion.hasCategory<>JeopardyCategory.hasQuestion',
-                 'JeopardyQuestion.hasAssociatedQuestion<>JeopardyQuestion.associatedQuestionOf']
 
 def get_test_clt():
+    opposite_refs = ['JeopardyQuestion.hasCategory<>JeopardyCategory.hasQuestion',
+                    'JeopardyQuestion.hasAssociatedQuestion<>JeopardyQuestion.associatedQuestionOf']
+
     client_weaviate=get_weaviate_client('localhost')
-    client=metal(client_weaviate, opposite_refs)
+    client=get_metal_client(client_weaviate, opposite_refs)
     JeopardyQuestion=client.get_metal_collection('JeopardyQuestion')
     JeopardyCategory=client.get_metal_collection('JeopardyCategory')
     return JeopardyQuestion,JeopardyCategory
 
 
-
+JeopardyQuestion,JeopardyCategory = get_test_clt()
 
 ###########################################################################
 ######### test get_metal_collection
@@ -110,7 +111,7 @@ def get_test_clt():
 
 
 client_weaviate=get_weaviate_client('localhost')
-client=metal(client_weaviate, opposite_refs)
+client=get_metal_client(client_weaviate, opposite_refs)
 JeopardyQuestion=client.get_metal_collection('JeopardyQuestion')
 
 JeopardyQuestion.metal.context
@@ -172,6 +173,9 @@ modelVectorizer = SentenceTransformer('/Users/paulhechinger/05data_shokunin/vect
 
 
 
+
+
+
 JeopardyQuestion.q(uuid[0])
 
 
@@ -197,9 +201,144 @@ JeopardyQuestion.query.fetch_objects(
                 limit=100)
 
 
-get_expr(['name']).parseString('name=ddd')
+get_compiler(['name']).parseString('name=ddd')
 allowed_fields = ['name']
 expr.parseString('name=3&name=fff')
+
+
+
+###################################################
+##### test get_translate_filter ###################
+###################################################
+
+
+
+#########################################################
+##### test get_atomic_weaviate_filter ###################
+#########################################################
+
+get_atomic_weaviate_filter()
+
+
+#########################################################
+##### test get_atomic_weaviate_filter ###################
+#########################################################
+
+allowed_fields=['name', 'age', 'gender', 'salary', 'hasChildren', 'ontologyOf']
+compiler=get_compiler(fields)
+r=compiler.parseString('name=john&age=22',parse_all=True)
+
+list(r)
+
+
+allowed_fields = ['name', 'age', 'salary', 'department', 'hasChildren']
+compiler2=get_compiler(allowed_fields)
+r=compiler2.parseString('name=John&age>30|department=Sales',parseAll=True)
+
+filters_str='name = John | age > 30 | department = Sales'
+filters_str='name = John & age > 30 | department = Sales & salary >= 50000'
+filters_str='((name = John) & (age > 30)) | ((department = Sales) & (salary >= 50000))'
+filters_str='hasChildren.hasOntology.name=childrenValue'
+compiler=get_compiler(allowed_fields)
+y=compiler.parseString(filters_str,parseAll=True)
+y[0]
+
+
+filter='name=John&age>30&department=Sales'
+filter='name=John&age>30'
+
+
+compiler=get_compiler(allowed_fields)
+y=compiler.parseString('name=John&age>30&department=Sales|name=Sarah',parseAll=True)
+y
+
+y=compiler.parseString('name=John&age>30&department=Sales',parseAll=True)
+y
+
+
+filters_str='question=aaaa&answer=hhhh&points=4'
+filters_str='question=aaaa'
+filters_str='hasCategory.name=childrenValue'
+JeopardyQuestion,JeopardyCategory = get_test_clt()
+col=JeopardyQuestion
+w_filter=get_translate_filter(JeopardyQuestion,filters_str)
+
+
+d=get_composed_weaviate_filter(col,operations,context)
+
+ident.parseString(filter)
+condition.parseString(filter)
+a=atom.parseString(filter)
+expr.parseString(filter)
+
+expr <<= infixNotation(atom, [
+            ('&', 2, opAssoc.LEFT, lambda t: {'and': [t[0][0], t[0][2]]}),
+            ('|', 2, opAssoc.LEFT, lambda t: {'or': [t[0][0], t[0][2]]})
+        ])
+
+expr <<= infixNotation(atom, [
+            ('&', 2, opAssoc.LEFT, lambda x: x[0]),
+            ('|', 2, opAssoc.LEFT)
+        ])
+
+expr.parseString('name=John&(age>30)')
+expr.parseString('name=John&age>30&department=Sales')
+expr.parseString('name=John&(age>30&department=Sales)')
+
+.parseString(filter)
+
+d=expr.parseString(filter)
+
+expr.parseString(filter)
+
+
+exp = {'and': [{'and': [{'field': 'name', 'operator': '=', 'value': 'John'},
+    {'or': [{'field': 'age', 'operator': '>', 'value': '30'},
+      {'field': 'department', 'operator': '=', 'value': 'Sales'}]}]},
+  {'field': 'salary', 'operator': '>=', 'value': '50000'}]}
+
+r[0]
+r[0]['and'][0]
+
+compiler2=get_expr2(allowed_fields)
+r=compiler2.parseString('name=john&age=44',parse_all=True)
+
+r=compiler2.parseString('name=john',parse_all=True)
+list(r)
+
+condition.parseString('name=john&age=22')
+expr.parseString('name=john&age=22')
+
+r[0]
+
+from pyparsing import Word, nums, oneOf
+
+# Define grammar
+operand = Word(nums).setParseAction(lambda tokens: int(tokens[0]))
+operator = oneOf("+ -")
+expr = operand + operator + operand
+
+def calculate(t):
+    if t[1] == '+':
+        return t[0] + t[2]
+    elif t[1] == '-':
+        return t[0] - t[2]
+expr.setParseAction(calculate)
+result = expr.parseString("5 + 3")
+print(result)  # Output: [8]
+
+
+
+operand = Word(nums)
+operator = oneOf("+ -")
+expr = operand + operator + operand
+
+# Parse the expression
+result = expr.parseString("5 + 3")
+print(result)  # Output: ['5', '+', '3']
+
+
+
 
 
 
@@ -265,8 +404,38 @@ to_load = [
 
 
 
+########################################################
+######## test metal_query ##############################
+########################################################
 
-######## test metal_query
+client=get_metal_client(client_weaviate)
+node_col=client.get_metal_collection('NodeTest', force_reload = True)
+node_col.metal_query('78345914-5f87-40f9-9f77-30802a547c05')
+
+f=get_metal_collection(client_weaviate, 'NodeTest', True)
+'NodeTest' in getattr(client,'buffer_clt',[])
+client.buffer_clt
+
+col.metal_query('78345914-5f87-40f9-9f77-30802a547c05')
+f.metal_query('78345914-5f87-40f9-9f77-30802a547c05')
+
+col.metal_query('78345914-5f87-40f9-9f77-30802a547c05')
+
+node_col.metal_query()
+
+self = client_weaviate
+clt = node_col
+filters_str = '78345914-5f87-40f9-9f77-30802a547c05'
+
+
+
+import importlib
+import full_metal_weaviate
+importlib.reload(full_metal_weaviate)
+from full_metal_weaviate import get_metal_client
+
+
+
 
 
 
@@ -364,12 +533,19 @@ allowed_fields=['a', 'b']
 regex_pattern = r'^(?:' + '|'.join(map(re.escape, allowed_fields)) + ')$'
 bool(re.match(regex_pattern, 'a'))
 
-compiler=get_expr(['a', 'b'])
+compiler=get_compiler(['a', 'b'])
 
 def gg():
     fff=compiler.parseString('af=44')
     print(fff)
     return fff
+
+
+self = TestGetExpr()
+
+self.compiler
+
+list(result)
 
 try:
     gg()

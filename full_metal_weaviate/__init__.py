@@ -1,1 +1,1 @@
-from .main import metal
+from .main import get_metal_client

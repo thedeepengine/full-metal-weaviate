@@ -13,7 +13,7 @@ from weaviate.util import generate_uuid5,get_valid_uuid
 from pyparsing import ZeroOrMore, Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc
 from rich.table import Table
 
-from full_metal_weaviate.container_op import __
+from full_metal_monad import __
 from full_metal_weaviate.utils import StopProcessingException
 
 console = Console()
@@ -32,6 +32,7 @@ def metal_load(self,to_load,dry_run=True):
             resolved_load=resolve_mix_to_load(self,to_load)
 
         if dry_run:
+            console.print('\n[magenta blue]Dry Run Mode, set dry_run=False to load[/]\n')
             return resolved_load
         else:
             if ref_format in ['ref_array_with_valid_uuid', 'ref_dict_with_valid_uuid']:
@@ -72,8 +73,7 @@ def delete_many_refs(clt, refs):
 
 def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,return_raw=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
     try:
-        operations=self.metal.compiler.parseString(filters_str,parse_all=True)
-        w_filter=get_composed_weaviate_filter(self,operations[0],context)
+        w_filter=get_translate_filter(self,filters_str,query_vector,context)
         return_properties,return_references,return_metadata,include_vector=translate_return_fields(return_fields)
 
         if query_vector != None:
@@ -117,8 +117,8 @@ def check_format(col,to_load):
 
     def is_ref_array_with_valid_uuid(to_load):
         try:
-            if (isinstance(to_load[0], list) 
-            & all(len(obj) == 3 for obj in to_load) 
+            if (isinstance(to_load[0], list)
+            & all(len(obj) == 3 for obj in to_load)
             & all([is_uuid_valid(i[0], True)&is_uuid_valid(i[2], True) for i in to_load])):
                 return True
             return False
@@ -373,36 +373,47 @@ def get_ident(allowed_fields): # sub optimal checking for authorised fields
     ident = Combine(base_ident + ZeroOrMore('.' + subfield_ident))
     return ident
 
-def get_expr(allowed_fields):
+def get_compiler(allowed_fields):
     try:
         ident = get_ident(allowed_fields)
         operator = Regex("!=|=|<=|<|>=|>|~|any|all").setName("operator")
         value = Regex(r'(?:[^=<>~!&|()\s"]+|"[^"]*")(?:\s+[^=<>~!&|()\s"]+)*')
         condition = Group(ident + operator + value)
+        condition.setParseAction(lambda t: {'field': t[0][0], 'operator': t[0][1], 'value': t[0][2]})
         lpar, rpar = map(Literal, "()")
         expr = Forward()
-        atom = condition | Group(lpar + expr + rpar)
+        g = Group(lpar + expr + rpar)
+        atom = condition | Group(lpar + expr + rpar).setParseAction(lambda t: t[1])
         expr <<= infixNotation(atom, [
-            ('&', 2, opAssoc.LEFT, lambda t: {"and": [t[0][0], t[0][2]]}),
-            ('|', 2, opAssoc.LEFT, lambda t: {"or": [t[0][0], t[0][2]]})
+            ('&', 2, opAssoc.LEFT, lambda t: {'and': t[0][::2]}),
+            ('|', 2, opAssoc.LEFT, lambda t: {'or': t[0][::2]})
         ])
         return expr
     except StopProcessingException as e:
         console.print(e)
 
-def get_composed_weaviate_filter(col,operations,context={}):
-    if isinstance(operations, list) and isinstance(operations[0], dict):
-        return [get_composed_weaviate_filter(col,item) for item in operations]
-    elif isinstance(operations, dict):
-        for key, value in operations.items():
-            op_left = get_composed_weaviate_filter(col,value[0])
-            op_right = get_composed_weaviate_filter(col,value[1])
-            if key == 'and':
-                return op_left&op_right
-            elif key == 'or':
-                return op_left|op_right
+def get_translate_filter(col,filters_str=None,query_vector=None,context={}):
+    if filters_str == None and query_vector == None:
+        raise StopProcessingException('[bold blue]One of filters_str or query_vector parameter should be set')
+    if is_uuid_valid(filters_str):
+        operations=[['uuid', '=', filters_str]]
     else:
-        return get_atomic_weaviate_filter(col,operations[0],operations[1], operations[2],context)
+        operations=col.metal.compiler.parseString(filters_str,parse_all=True)
+    w_filter=get_composed_weaviate_filter(col,operations[0],context)
+    return w_filter
+
+def get_composed_weaviate_filter(clt,operations,context={}):
+    if isinstance(operations, list) and isinstance(operations[0], dict):
+        return [get_composed_weaviate_filter(clt,item) for item in operations]
+    elif isinstance(operations, dict) and len(operations) == 1:
+        for key, value in operations.items():
+            op_left = get_composed_weaviate_filter(clt,value[0])
+            if key == 'and':
+                return reduce(lambda acc, x: acc & get_composed_weaviate_filter(clt,x), value[1:], op_left)
+            elif key == 'or':
+                return reduce(lambda acc, x: acc | get_composed_weaviate_filter(clt,x), value[1:], op_left)
+    else:
+        return get_atomic_weaviate_filter(clt,operations['field'],operations['operator'], operations['value'],context)
 
 def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
     if prop in context:
@@ -472,7 +483,7 @@ def is_uuid_valid(uuid,bool_ouput=False):
 
 def translate_return_fields(return_fields):
     if return_fields == None:
-        return None, None, False
+        return None, None,None,False
     
     ret_prop,ret_ref,return_metadata,nested_segments=None,None,None,None
     include_vector=False
@@ -483,10 +494,10 @@ def translate_return_fields(return_fields):
         if 'vector' in ret_prop:
             include_vector = True
             ret_prop.remove('vector')
-        if (vector_str:=__(ret_prop).startswith('vector:')):
+        if (vector_str:=__(ret_prop).val.startswith('vector:').__):
             include_vector=vector_str[0].split(':')[1].split(',')
             ret_prop.remove(vector_str[0])
-        if (meta:=__(ret_prop).startswith('metadata:')):
+        if (meta:=__(ret_prop).val.startswith('metadata:').__):
             meta_bool={i:True for i in meta[0].split(':')[1].split(',')}
             return_metadata=MetadataQuery(**meta_bool)
             ret_prop.remove(meta[0])

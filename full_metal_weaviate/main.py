@@ -24,8 +24,8 @@ from weaviate import WeaviateClient
 from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
 
-from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_expr
-from full_metal_weaviate.container_op import __, safe_jmes_search
+from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_compiler
+from full_metal_monad import __, safe_jmes_search
 
 from full_metal_weaviate.utils import StopProcessingException
 
@@ -43,8 +43,10 @@ def get_metal_client(client_weaviate,opposite_refs=None):
 def get_metal_collection(self,name,force_reload=False):
     try:
         if not force_reload and name in getattr(self,'buffer_clt',[]):
+            print('buffer')
             return getattr(self,'buffer_clt')[name]
         else:
+            print('force reload')
             col = self.collections.get(name)
             if is_clt_existing(col):
                 col.metal=MetalCollectionContext(self, name)
@@ -65,16 +67,16 @@ def get_metal_collection(self,name,force_reload=False):
 go_metal = get_metal_collection
 
 def init_metal_batch(self):
-    self.metal.current_transaction_object = []
-    self.metal.current_transaction_reference = []
+    self.current_transaction_object = []
+    self.current_transaction_reference = []
 
 def append_transaction(self,clt_name,data,trans_type):
     if not hasattr(self, 'current_transaction_object') or not hasattr(self, 'current_transaction_reference'):
         raise Exception('should call init_metal_batch first')
     if trans_type == 'object':
-        self.metal.current_transaction_object.append({'clt_name': clt_name, 'uuid': data})
+        self.current_transaction_object.append({'clt_name': clt_name, 'uuid': data})
     if trans_type == 'reference':
-        self.metal.current_transaction_reference.append({'clt_name': clt_name, 'ref': data})
+        self.current_transaction_reference.append({'clt_name': clt_name, 'ref': data})
 
 def get_opposite(self, key=None):
     try:
@@ -93,6 +95,8 @@ class MetalClientContext:
     def __init__(self, client_weaviate):
         self.append_transaction = MethodType(append_transaction, client_weaviate)
         self.init_metal_batch = MethodType(init_metal_batch, client_weaviate)
+        self.current_transaction_object = []
+        self.current_transaction_reference = []
   
 class MetalCollectionContext:
     def __init__(self, client_weaviate, clt_name):
@@ -100,7 +104,7 @@ class MetalCollectionContext:
         self.context=set_weaviate_context(client_weaviate)
         self.props=safe_jmes_search(f'fields.{clt_name}.properties', self.context).unwrap()
         self.refs=safe_jmes_search(f'fields.{clt_name}.references', self.context).unwrap()
-        self.compiler=get_expr(self.props+self.refs+['uuid'])
+        self.compiler=get_compiler(self.props+self.refs+['uuid'])
         self.original_client=weakref.ref(client_weaviate)
         self.get_opposite=MethodType(get_opposite, self)
         self.register_opposite_ref=MethodType(register_opposite_ref, self)

@@ -1,0 +1,76 @@
+version: "3.5"
+
+services:
+  fastapi:
+    image: 430360445116.dkr.ecr.us-east-1.amazonaws.com/datashokunin:fastapi_prod
+    volumes:
+      - /home/admin/thedeepengine/fastapi_app:/fastapi_app
+      - /home/admin/thedeepengine/fastapi_app/vectorizer:/fastapi_app/vectorizer
+      - /home/admin/colbert:/colbert/
+    expose:
+      - 8000
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.fastapi.rule=(Host(`thedeepengine.co`) && PathPrefix(`/api`) || Host(`www.thedeepengine.co`) && PathPrefix(`/api`))"
+      - "traefik.http.routers.fastapi.tls=true"
+      - "traefik.http.routers.fastapi.tls.certresolver=myresolver" 
+    networks:
+      - traefik_new
+    env_file:
+      - shokunin_var.env
+
+  vue_app:
+    image: 430360445116.dkr.ecr.us-east-1.amazonaws.com/datashokunin:vue_app_prod
+    platform: linux/amd64
+    expose:
+      - 8080
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vue_app-https.rule=Host(`thedeepengine.co`) || Host(`www.thedeepengine.co`)"
+      - "traefik.http.routers.vue_app-https.tls=true"  
+      - "traefik.http.routers.vue_app-https.tls.certresolver=myresolver" 
+      # - "traefik.http.routers.vue_app-http.rule=Host(`datashokunin.co`)"
+      # - "traefik.port=80"  
+    networks:
+      - traefik_new
+
+  traefik:
+    image: traefik
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/admin/thedeepengine/traefik:/etc/traefik 
+    networks:
+      - traefik_new
+
+  weaviate:
+    image: semitechnologies/weaviate:1.24.12
+    ports:
+      - 8080:8080
+      - 50051:50051
+    volumes:
+      - /home/admin/weaviate_data_local:/var/lib/weaviate
+    env_file:
+      - shokunin_var.env
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      CLUSTER_HOSTNAME: 'node1'
+      BACKUP_S3_BUCKET: 'shokunin-backup'
+    networks:
+      - traefik_new
+
+  t2v-transformers:
+    image: semitechnologies/transformers-inference:sentence-transformers-multi-qa-MiniLM-L6-cos-v1
+    environment:
+      ENABLE_CUDA: 0
+    ports:
+      - 8081:8080
+    networks:
+      - traefik_new
+
+networks:
+  traefik_new:
+    name: traefik_webgateway_new

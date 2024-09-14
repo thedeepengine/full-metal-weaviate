@@ -1,12 +1,16 @@
 # Full Metal Weaviate
 
-High level wrapper for Weaviate meant to reduce boilerplates and iterate faster. We propose essentially two basic high-sugary syntax functions:
+High level wrapper for Weaviate meant to reduce boilerplates and iterate faster. Full Metal Weaviate propose two basic boilerplate-free intuitive functions and a UI for Weaviate:
+
+`.metal_query` and `.metal_load` (aliased as `.q` and `.l`)
+
+`.metal_query` makes it easy to query your data using an intuitive boilerplate-free syntax
+
+`.metal_load` makes it easy to load your data with an easy syntax.
 
 
-metal_query and metal_load (aliased as .q and .l)
+`Full Metal` turn this (search query):
 
-
-It turn this:
 ```
 response = jeopardy.query.fetch_objects(
     filters=Filter.by_property("round").equal("Double Jeopardy!"),
@@ -30,45 +34,53 @@ or this (2 way cross-references loading):
 ```
 category = client.collections.get("JeopardyCategory")
 
-category_obj_id = category.query.fetch_objects(
+category_obj_uuid = category.query.fetch_objects(
     filters=Filter.by_property("name").equal("category_name"),
     limit=3
 )
 
 questions = client.collections.get("JeopardyQuestion")
 questions.data.reference_add(
-    from_uuid=question_obj_id,
+    from_uuid=question_obj_uuid,
     from_property="hasCategory",
-    to=category_obj_id
+    to=category_obj_uuid
 )
 
 categories = client.collections.get("JeopardyCategory")
-categories.data.reference_add({from_uuid=category_obj_id,from_property="hasQuestion",to=question_obj_id})
+categories.data.reference_add({from_uuid=category_obj_uuid,from_property="hasQuestion",to=question_obj_uuid})
 ```
 
 into this
 
 ```
 questions = client.get_metal_collection("JeopardyQuestion")
-questions.metal_load({from_uuid=category_obj_id,from_property="hasQuestion",to=question_obj_id})
-???
-
-questions = client.get_metal_collection("JeopardyQuestion")
-questions.l([category_obj_id,"hasQuestion",question_obj_id])
+questions.l([category_obj_uuid,"<>hasQuestion",question_obj_uuid])
 ```
 
-or event shorter: 
+you can also use this syntax:
+
+```
+questions = client.get_metal_collection("JeopardyQuestion")
+questions.metal_load({from_uuid=category_obj_uuid,from_property="<>hasQuestion",to=question_obj_uuid})
+```
+
+See the `<>` syntax, it's telling the system you want it both ways. So the system will pick up the opposite relationship and create the ref for you automatically.
+
+Now, let say you do not want to implement the logic to retrieve the actual uuids. 
+You can provide your `.metal_load` method with a query, for example `name=this question`, if your query uniquely identify an item within your collection, `full metal` will load the data for you. If its not unique, then you'll have to refine your query to make it retrieve a unique uuid.
 
 ```
 questions = client.get_metal_collection("JeopardyQuestion")
 questions.l({from_uuid='name=myquestion',from_property="hasCategory",to='name=category'})
 ```
 
-To balance with this seamingly too sugary syntax. Full Metal enforces constraints on what is parsed, raises explicit messages on properties or references typos and is verbose and dry run by default, so you can double check what was infered.
+To balance with this sugary syntax. `Full Metal` enforces constraints on what is parsed, raises explicit messages on properties or references typos and is verbose and dry run by default, so you can double check what was infered.
 
 Its not meant to be used in production and just like for any other query system, especially if you use raw query syntax for your classic weaviate queries, you have to be cautious of injection risks.
 
 ## Metal query
+
+like `name = value & hasChildren.content = children_value`
 
 ```
 response = jeopardy.query.fetch_objects(
