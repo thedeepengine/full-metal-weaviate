@@ -5,7 +5,7 @@ setup(
     version='0.1',
     packages=['full_metal_weaviate'],
     description='full_metal_weaviate',
-    long_description=open('full_metal_weaviate/README.md').read(),
+    long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
     author='Paul Hechinger',
     author_email='paul7junior@gmail.com',
@@ -15,7 +15,7 @@ setup(
                       'rich>=13.0.0, <14.0.0',
                       'jmespath>=1.0.0, <2.0.0',
                       'pandas>=2.0.0, <3.0.0',
-                      'full-metal-monad @ git+https://github.com/username/repository.git@main#egg=full-metal-monad'],
+                      'full-metal-monad @ git+https://github.com/thedeepengine/full-metal-monad.git@main#egg=full-metal-monad'],
     extras_require={
         'dev': [
             'ipython>=8.18.1',
