@@ -2,16 +2,16 @@ version: "3.5"
 
 services:
   fastapi:
-    image: fastapi_app_fmw_dev:latest
+    image: fastapi_app_fmw_dev
     volumes: 
       - ./fastapi_app:/fastapi_app
-      - ./vectorizer:/fastapi_app/vectorizer
-      - ./22full-metal-weaviate/:/22full-metal-weaviate/
-      - ./23full-metal-monad/:/23full-metal-monad/
+      # - ./vectorizer:/fastapi_app/vectorizer
+      # - ./22full-metal-weaviate/:/22full-metal-weaviate/
+      # - ./23full-metal-monad/:/23full-metal-monad/
     ports:
-      - 8000:8000
+      - 8002:8002
     env_file:
-      - shokunin_var.env
+      - full_metal_weaviate.env
     networks:
       - shared-network
       

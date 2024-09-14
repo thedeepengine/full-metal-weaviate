@@ -1,13 +1,14 @@
-import { ref, computed, onMounted } from 'vue'
+import { ref, shallowRef, computed, onMounted, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { List28Regular, ArrowRouting20Filled, Map24Regular, GridDots28Regular } from '@vicons/fluent'
+import axios from 'axios';
 
 export const mainStore = defineStore('store', () => {
     const dimension = ref('hierarchy')
     const data = ref(null)
 
 
-    const header_button = ref(
+    const header_button = shallowRef(
         [{display_name: 'Hierarchy',
         icon: Map24Regular},
         {display_name: 'Network',
@@ -31,25 +32,31 @@ export const mainStore = defineStore('store', () => {
     const searchBox = ref(null)
 
 
-    function set_dimension(dimension) {
-        dimension.value = dimension
+    function set_dimension(dim) {
+        dimension.value = dim
     }
 
     function fetch_data(clt, request) {
-        let clt = 'JeopardyQuestion'
-        let request = ''
+        clt = 'JeopardyQuestion'
+        request = ''
+        
+        // axios.defaults.baseURL = import.meta.env.VITE_API_URL
+        axios.defaults.baseURL='https://localhost:8002/'
+        
         axios
-        .post("/v1/api/query", {clt: clt, request: request})
+        .post("/v1/api/query/", {clt: clt, request: request})
         .then(response => {
+            console.log('response: ', response)
             return response
         })
         
     }
 
     onMounted(() => {
-        watch(() => store.dimension, (newValue, oldValue) => {
+        watch(() => dimension.value, (newValue, oldValue) => {
             console.log('WATCHER DIMENSION')
             fetch_data('ddd', 'gggg')
+
             // if (store.dimension === 'thingsspace') {
             // store.getHierarchy({ mapId: store.clickedItemId, ontologyUuid: store.ontologyUuidSelected }, undefined, true, 'watch DeepEngineMain.vue')
             // }

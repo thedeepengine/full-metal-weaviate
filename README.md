@@ -78,6 +78,12 @@ To balance with this sugary syntax. `Full Metal` enforces constraints on what is
 
 Its not meant to be used in production and just like for any other query system, especially if you use raw query syntax for your classic weaviate queries, you have to be cautious of injection risks.
 
+## Installation
+
+```
+pip install git+https://github.com/thedeepengine/full-metal-weaviate.git
+```
+
 ## Metal query
 
 like `name = value & hasChildren.content = children_value`
@@ -274,3 +280,4 @@ We decouple the system the meta information from the value system.
 Meaning that there is only one place you have to manage your tests, names and categories, your test ontologies. You can clearly defines each incommensurables axis and then combine them. 
 
 ## Full Metal Weaviate UI
+

@@ -4,18 +4,18 @@ RUN apt-get update
 RUN apt-get install -y vim
  
 # 
-WORKDIR .
+WORKDIR /fastapi_app
 
 # 
-COPY ./requirements.txt ./requirements.txt
+COPY ./requirements.txt /fastapi_app/requirements.txt
 
 # 
 RUN pip install --upgrade pip
-RUN pip install --no-cache-dir --upgrade -r ./requirements.txt
+RUN pip install --no-cache-dir --upgrade -r /fastapi_app/requirements.txt
 
 # self generated for local dev
-COPY ./cert.pem ./cert.pem
-COPY ./key.pem ./key.pem
+COPY ./cert.pem /fastapi_app/cert.pem
+COPY ./key.pem /fastapi_app/key.pem
 # 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "debug", "--reload", "--reload-dir", "./app", "--ssl-keyfile", "./key.pem", "--ssl-certfile", "./cert.pem", "--ws", "websockets"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--log-level", "debug", "--reload", "--reload-dir", "/fastapi_app/app", "--ssl-keyfile", "/fastapi_app/key.pem", "--ssl-certfile", "/fastapi_app/cert.pem", "--ws", "websockets"]
 
