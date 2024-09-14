@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='full_metal_weaviate',
+    name='full-metal-weaviate',
     version='0.1',
     packages=['full_metal_weaviate'],
     description='full_metal_weaviate',
@@ -14,7 +14,8 @@ setup(
                       'weaviate-client>=4.6.0, <5.0.0',
                       'rich>=13.0.0, <14.0.0',
                       'jmespath>=1.0.0, <2.0.0',
-                      'pandas>=2.0.0, <3.0.0'],
+                      'pandas>=2.0.0, <3.0.0',
+                      'full-metal-monad @ git+https://github.com/username/repository.git@main#egg=full-metal-monad'],
     extras_require={
         'dev': [
             'ipython>=8.18.1',

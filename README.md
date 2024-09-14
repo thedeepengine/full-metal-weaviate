@@ -272,3 +272,5 @@ File is king. Meaning that if you change something in the file unless you explic
 
 We decouple the system the meta information from the value system. 
 Meaning that there is only one place you have to manage your tests, names and categories, your test ontologies. You can clearly defines each incommensurables axis and then combine them. 
+
+## Full Metal Weaviate UI
