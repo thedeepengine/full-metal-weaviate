@@ -20,16 +20,23 @@ import weakref
 from types import MethodType
 from itertools import zip_longest
 from rich.console import Console
+from rich.theme import Theme
 from weaviate import WeaviateClient
 from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
-
 from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_compiler
 from full_metal_monad import __, safe_jmes_search
 
 from full_metal_weaviate.utils import StopProcessingException
 
-console = Console()
+custom_theme = Theme({
+    "info": "dim cyan",
+    "warning": "magenta",
+    "error": "bold red"
+})
+
+console = Console(theme=custom_theme)
+
 
 def get_metal_client(client_weaviate,opposite_refs=None):
     """
@@ -43,10 +50,8 @@ def get_metal_client(client_weaviate,opposite_refs=None):
 def get_metal_collection(self,name,force_reload=False):
     try:
         if not force_reload and name in getattr(self,'buffer_clt',[]):
-            print('buffer')
             return getattr(self,'buffer_clt')[name]
         else:
-            print('force reload')
             col = self.collections.get(name)
             if is_clt_existing(col):
                 col.metal=MetalCollectionContext(self, name)
@@ -101,11 +106,11 @@ class MetalClientContext:
 class MetalCollectionContext:
     def __init__(self, client_weaviate, clt_name):
         self.name=clt_name
+        self.original_client=weakref.ref(client_weaviate)
         self.context=set_weaviate_context(client_weaviate)
         self.props=safe_jmes_search(f'fields.{clt_name}.properties', self.context).unwrap()
         self.refs=safe_jmes_search(f'fields.{clt_name}.references', self.context).unwrap()
         self.compiler=get_compiler(self.props+self.refs+['uuid'])
-        self.original_client=weakref.ref(client_weaviate)
         self.get_opposite=MethodType(get_opposite, self)
         self.register_opposite_ref=MethodType(register_opposite_ref, self)
   
@@ -159,7 +164,18 @@ def register_opposite(client,opposite_refs):
         buffer_clt[clt_source].metal.register_opposite_ref(rel_source,rel_target)
 
 def get_weaviate_client(weaviate_client_url):
-    api_key_weaviate=os.getenv('AUTHENTICATION_APIKEY_ALLOWED_KEYS')
+    global weaviate_client, client
+    api_key_weaviate = os.getenv('AUTHENTICATION_APIKEY_ALLOWED_KEYS')
+
+    weaviate_client_check='weaviate_client' in globals() and isinstance(weaviate_client, WeaviateClient)
+    client_check='client' in globals() and isinstance(client, WeaviateClient)
+    if any([weaviate_client_check,client_check]):
+        try:
+            if weaviate_client_check: weaviate_client.close()
+            if client_check: client.close()
+            console.print("[info]Existing client closed, a new connection will be established.")
+        except Exception as e:
+            console.print(f"[error]Error closing the client: {str(e)}")
 
     client = WeaviateClient(
     connection_params=ConnectionParams.from_params(

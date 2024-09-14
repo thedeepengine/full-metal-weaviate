@@ -5,7 +5,29 @@ from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
 import weaviate.classes as wvc
 from weaviate.classes.config import Property, DataType, ReferenceProperty, Configure, Tokenization
+from main import get_metal_client, get_weaviate_client
 
+global weaviate_client, client
+
+def get_test_clt():
+    opposite_refs = ['JeopardyQuestion.hasCategory<>JeopardyCategory.hasQuestion',
+                    'JeopardyQuestion.hasAssociatedQuestion<>JeopardyQuestion.associatedQuestionOf']
+
+    client_weaviate=get_weaviate_client('localhost')
+    client=get_metal_client(client_weaviate, opposite_refs)
+    JeopardyQuestion=client.get_metal_collection('JeopardyQuestion')
+    JeopardyCategory=client.get_metal_collection('JeopardyCategory')
+    return JeopardyQuestion,JeopardyCategory
+
+JeopardyQuestion,JeopardyCategory = get_test_clt()
+
+JeopardyQuestion.metal_query()
+
+
+client=get_weaviate_client('localhost')
+
+get_translate_filter(JeopardyQuestion)
+metal_query(JeopardyQuestion)
 
 #######################
 ### Jeopardy
@@ -101,7 +123,6 @@ def get_test_clt():
     JeopardyQuestion=client.get_metal_collection('JeopardyQuestion')
     JeopardyCategory=client.get_metal_collection('JeopardyCategory')
     return JeopardyQuestion,JeopardyCategory
-
 
 JeopardyQuestion,JeopardyCategory = get_test_clt()
 
@@ -212,12 +233,14 @@ expr.parseString('name=3&name=fff')
 ###################################################
 
 
+get_composed_weaviate_filter(col,[],{})
 
 #########################################################
 ##### test get_atomic_weaviate_filter ###################
 #########################################################
 
 get_atomic_weaviate_filter()
+
 
 
 #########################################################

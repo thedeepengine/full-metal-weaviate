@@ -393,8 +393,10 @@ def get_compiler(allowed_fields):
         console.print(e)
 
 def get_translate_filter(col,filters_str=None,query_vector=None,context={}):
-    if filters_str == None and query_vector == None:
-        raise StopProcessingException('[bold blue]One of filters_str or query_vector parameter should be set')
+    # if filters_str == None and query_vector == None:
+    #     raise StopProcessingException('[bold blue]One of filters_str or query_vector parameter should be set')
+    if filters_str == None: return None
+    
     if is_uuid_valid(filters_str):
         operations=[['uuid', '=', filters_str]]
     else:
@@ -403,7 +405,9 @@ def get_translate_filter(col,filters_str=None,query_vector=None,context={}):
     return w_filter
 
 def get_composed_weaviate_filter(clt,operations,context={}):
-    if isinstance(operations, list) and isinstance(operations[0], dict):
+    if len(operations) == 0:
+        return None
+    elif isinstance(operations, list) and isinstance(operations[0], dict):
         return [get_composed_weaviate_filter(clt,item) for item in operations]
     elif isinstance(operations, dict) and len(operations) == 1:
         for key, value in operations.items():

@@ -25,7 +25,7 @@
         <div style="width: 100%;padding-top: 12px;">
           <n-button-group style="z-index:9;width:100%;justify-content:center;" id="dimensionButton">
             <n-button class="dsbutton" v-for="i in store.header_button" :key="i.display_name"
-            @click="store.dimension = 'dd'" round>
+            @click="store.set_dimension(i.display_name)" round>
               <n-icon v-if="store.header_mode =='icon'" :component="i.icon" color="black" size="16"></n-icon>
               <span v-else>{{i.display_name}}</span>
             </n-button>
