@@ -37,7 +37,7 @@ a,
     --n-ripple-color: black !important;
     --n-border-pressed: none !important;
     --n-border-hover: 1px solid black !important;
-    --n-border-focus: none !important;
+    --n-border-focus: 1px solid black !important;
     --n-text-color-hover: black !important;
     --n-text-color-pressed: black !important;
     --n-text-color-focus: 1px solid #d4af37 !important;
