@@ -37,6 +37,11 @@ custom_theme = Theme({
 
 console = Console(theme=custom_theme)
 
+def test_reload():
+    print('aaaJJJJJa')
+
+def test_reload2():
+    print('aaaJJJJJa')
 
 def get_metal_client(client_weaviate,opposite_refs=None):
     """
@@ -164,8 +169,8 @@ def register_opposite(client,opposite_refs):
         buffer_clt[clt_source].metal.register_opposite_ref(rel_source,rel_target)
 
 def get_weaviate_client(weaviate_client_url):
-    global weaviate_client, client
-    api_key_weaviate = os.getenv('AUTHENTICATION_APIKEY_ALLOWED_KEYS')
+    # global weaviate_client, client
+    api_key_weaviate = os.getenv('WEAVIATE_API_KEY')
 
     weaviate_client_check='weaviate_client' in globals() and isinstance(weaviate_client, WeaviateClient)
     client_check='client' in globals() and isinstance(client, WeaviateClient)
