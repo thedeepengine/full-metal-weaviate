@@ -10,7 +10,7 @@ from rich.traceback import install
 from weaviate.classes.query import MetadataQuery, Filter, QueryReference
 from weaviate.exceptions import WeaviateBaseError
 from weaviate.util import generate_uuid5,get_valid_uuid
-from pyparsing import ZeroOrMore, Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc
+from pyparsing import ZeroOrMore, OneOrMore, FollowedBy, Suppress, delimitedList, Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc
 from rich.table import Table
 
 from full_metal_monad import __
@@ -74,26 +74,26 @@ def delete_many_refs(clt, refs):
 def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,return_raw=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
     try:
         w_filter=get_translate_filter(self,filters_str,query_vector,context)
-        return_properties,return_references,return_metadata,include_vector=translate_return_fields(return_fields)
+        ret_prop,ret_ref,ret_meta,include_vector=get_weaviate_return_fields(self,return_fields)
 
         if query_vector != None:
             res = self.query.near_vector(
                 near_vector=query_vector,
                 target_vector=target_vector,
                 filters=w_filter,
-                return_properties=return_properties,
-                return_references=return_references,
-                return_metadata=return_metadata,
+                return_properties=ret_prop,
+                return_references=ret_ref,
+                return_metadata=ret_meta,
                 include_vector=include_vector,
                 limit=limit,
                 auto_limit=auto_limit)
         else:
             res = self.query.fetch_objects(
                 filters=w_filter,
-                return_properties=return_properties,
-                return_references=return_references,
+                return_properties=ret_prop,
+                return_references=ret_ref,
                 include_vector=include_vector,
-                return_metadata=return_metadata,
+                return_metadata=ret_meta,
                 limit=limit)
             
         if not return_raw:
@@ -366,11 +366,14 @@ def one_of_checker(x, allowed_fields):
     #     console.print_exception(extra_lines=5,show_locals=True)
     #     raise
     
-def get_ident(allowed_fields): # sub optimal checking for authorised fields
-    base_ident=custom_one_of(allowed_fields)
+def get_ident(allowed_fields=None): # sub optimal checking for authorised fields
+    if allowed_fields:
+        base_ident=custom_one_of(allowed_fields)
+    else:
+        base_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
     base_ident.add_parse_action(lambda x: one_of_checker(x,allowed_fields))
-    subfield_ident = Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
-    ident = Combine(base_ident + ZeroOrMore('.' + subfield_ident))
+    subfield_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
+    ident=Combine(base_ident + ZeroOrMore('.' + subfield_ident))
     return ident
 
 def get_compiler(allowed_fields):
@@ -485,50 +488,98 @@ def is_uuid_valid(uuid,bool_ouput=False):
     except TypeError:
         return False
 
-def translate_return_fields(return_fields):
-    if return_fields == None:
-        return None, None,None,False
+def get_return_field_compiler():
+    field = Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
+    value = delimitedList(Combine(field + ~FollowedBy(Suppress(":"))), combine= True)
+    field_value = Combine(field + ":" + value).setParseAction(lambda tokens: ("valued", " ".join(tokens)))
+    complex_field_value = Group(field_value + ">" + OneOrMore(field_value))
+    complex_field_value.setParseAction(lambda tokens: ("nested", [str(i[1]) for i in tokens[0][::2]]))
+    parser = OneOrMore(complex_field_value | field_value | field.setParseAction(lambda tokens: ("simple", tokens[0])))
+    return parser
+
+def get_weaviate_return_fields(col,return_fields_str):
+    parsed_types=col.metal.compiler_return_f.searchString(return_fields_str)
+    weaviate_return = get_weaviate_return(parsed_types)
+    return weaviate_return
+
+def get_weaviate_return(parsed_types):
+    ret_prop,ret_ref,ret_metadata,include_vector=[],[],[],False
+    for i in parsed_types:
+        field_type=i[0][0]
+        i_parsed=i[0][1]
+        if field_type == 'simple':
+            if i_parsed == 'vector':
+                include_vector = True
+            ret_prop.append(i_parsed)
+        if field_type == 'valued':
+            if i_parsed.startswith('vector:'):
+                include_vector=i_parsed.split(':')[1].split(',')
+            if i_parsed.startswith('metadata:'):
+                meta_bool={i:True for i in i_parsed.split(':')[1].split(',')}
+                ret_metadata.append(MetadataQuery(**meta_bool))
+            ret_ref.append(atomic_return_ref(i_parsed))
+        if field_type == 'nested':
+            i_parsed.reverse()
+            def f(acc, f_v):
+                field,values=f_v.split(':')
+                values=values.split(',')
+                return QueryReference(link_on=field, 
+                               return_properties=values, 
+                               return_references=acc)
+             
+            ret_ref.append(reduce(f, i_parsed[1:], atomic_return_ref(i_parsed[0])))
+    return ret_prop,ret_ref,ret_metadata,include_vector
+
+def atomic_return_ref(field_value):
+    field,values=field_value.split(':')
+    values=values.split(',')
+    return QueryReference(link_on=field, return_properties=values)
+
+
+# def translate_return_fields(return_fields):
+#     if return_fields == None:
+#         return None, None,None,False
     
-    ret_prop,ret_ref,return_metadata,nested_segments=None,None,None,None
-    include_vector=False
-    top_split = return_fields.split(';;')
-    if len(top_split) == 2:
-        ret_prop, nested_segments = top_split
-        ret_prop = [prop.strip() for prop in ret_prop.split(',')]
-        if 'vector' in ret_prop:
-            include_vector = True
-            ret_prop.remove('vector')
-        if (vector_str:=__(ret_prop).val.startswith('vector:').__):
-            include_vector=vector_str[0].split(':')[1].split(',')
-            ret_prop.remove(vector_str[0])
-        if (meta:=__(ret_prop).val.startswith('metadata:').__):
-            meta_bool={i:True for i in meta[0].split(':')[1].split(',')}
-            return_metadata=MetadataQuery(**meta_bool)
-            ret_prop.remove(meta[0])
-    else:
-        if ':' not in top_split[0]:
-            ret_prop = [prop.strip() for prop in top_split[0].split(',')]
-        else:
-            nested_segments = top_split[0]
+#     ret_prop,ret_ref,return_metadata,nested_segments=None,None,None,None
+#     include_vector=False
+#     top_split = return_fields.split(';;')
+#     if len(top_split) == 2:
+#         ret_prop, nested_segments = top_split
+#         ret_prop = [prop.strip() for prop in ret_prop.split(',')]
+#         if 'vector' in ret_prop:
+#             include_vector = True
+#             ret_prop.remove('vector')
+#         if (vector_str:=__(ret_prop).val.startswith('vector:').__):
+#             include_vector=vector_str[0].split(':')[1].split(',')
+#             ret_prop.remove(vector_str[0])
+#         if (meta:=__(ret_prop).val.startswith('metadata:').__):
+#             meta_bool={i:True for i in meta[0].split(':')[1].split(',')}
+#             return_metadata=MetadataQuery(**meta_bool)
+#             ret_prop.remove(meta[0])
+#     else:
+#         if ':' not in top_split[0]:
+#             ret_prop = [prop.strip() for prop in top_split[0].split(',')]
+#         else:
+#             nested_segments = top_split[0]
     
-    if nested_segments != None:
-        ret_ref = []
-        all_paths = nested_segments.split('|')
-        for path in all_paths:
-            levels = path.split(';')
-            levels.reverse()
-            current_reference = None
-            for level in levels:
-                if ':' in level:
-                    link_on, properties = level.split(':')
-                    properties_list = [p.strip() for p in properties.split(',')]
-                else:
-                    link_on = level.strip()
-                    properties_list = []
-                current_reference = QueryReference(link_on=link_on, return_properties=properties_list, return_references=current_reference)
-            ret_ref.append(current_reference)
+#     if nested_segments != None:
+#         ret_ref = []
+#         all_paths = nested_segments.split('|')
+#         for path in all_paths:
+#             levels = path.split(';')
+#             levels.reverse()
+#             current_reference = None
+#             for level in levels:
+#                 if ':' in level:
+#                     link_on, properties = level.split(':')
+#                     properties_list = [p.strip() for p in properties.split(',')]
+#                 else:
+#                     link_on = level.strip()
+#                     properties_list = []
+#                 current_reference = QueryReference(link_on=link_on, return_properties=properties_list, return_references=current_reference)
+#             ret_ref.append(current_reference)
         
-    return ret_prop,ret_ref,return_metadata,include_vector
+#     return ret_prop,ret_ref,return_metadata,include_vector
 
 
 def extract_object(res, include_vector=False):

@@ -5,7 +5,9 @@ from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
 import weaviate.classes as wvc
 from weaviate.classes.config import Property, DataType, ReferenceProperty, Configure, Tokenization
-from main import get_metal_client, get_weaviate_client
+# from main import get_metal_client, get_weaviate_client
+
+from full_metal_weaviate.main import get_metal_client,get_weaviate_client
 
 global weaviate_client, client
 
@@ -140,6 +142,19 @@ JeopardyQuestion.metal.props
 JeopardyQuestion.metal.refs
 JeopardyQuestion.metal.compiler
 
+
+
+###########################################################################
+######### test get_weaviate_return_fields
+###########################################################################
+
+
+parser_return_field=get_return_field_compiler()
+return_fields_str = "question,name,metadata:distance,hasCategory:title,description>hasChildren:name,description,hasAssociatedQuestion:question,name"
+parsed_types = parser_return_field.searchString(return_fields_str)
+ret_prop,ret_ref,ret_metadata,include_vector=get_weaviate_return_fields(parsed_types)
+
+
 ###########################################################################
 ######### test register_opposite
 ###########################################################################
@@ -227,6 +242,42 @@ allowed_fields = ['name']
 expr.parseString('name=3&name=fff')
 
 
+
+
+
+
+###################################################
+##### test get_translate_filter ###################
+###################################################
+
+
+client_weaviate=get_weaviate_client('localhost')
+client=get_metal_client(client_weaviate)
+node_col=client.get_metal_collection('NodeTest')
+
+return_fields='name,hasChildren:name'
+node_col.q('name=Roommate', 'name,hasChildren:name>hasChildren:name')
+
+
+return_fields_str = 'name,hasChildren:name'
+metal_query(node_col,'name=Roommate', 'name,hasChildren:name')
+
+col = node_col
+self = col
+node_col.metal.
+
+a=node_col.q('name=Roommate', 'name;;hasChildren:name;hasChildren:name')
+
+
+# differente dimensions of information
+# create categories, put together objects with similar properties, so you can act on it.
+# thats pretty much what statistical models are doing, neural networks
+# information reduction like in 
+# moving up and down the abstraction ladder
+# create relationships, as a network
+
+# some models would fail in some odd ways.
+# structural fail or data fail
 
 ###################################################
 ##### test get_translate_filter ###################
@@ -538,6 +589,314 @@ return_fields=[
     'question,metadata:distance;;hasCategory:title,description|hasAssociatedQuestion:question', # same level
     'question,metadata:distance;;hasAssociatedQuestion:question;hasCategory:title' # nested
 ]
+
+
+def split_into_tokens(input_string):
+    tokens = re.split('([^,;|:]+)', input_string)
+    tokens = [token.strip() for token in tokens if token.strip()]
+    return tokens
+
+input_string = "question,name,metadata:distance,hasCategory:title,description;hasChildren:name|hasAssociatedQuestion:question"
+tokens = split_into_tokens(input_string)
+print(tokens)
+
+
+import re
+
+def split_into_tokens(input_string):
+    tokens = re.split('([^,;|:]+)', input_string)
+    tokens = [token.strip() for token in tokens if token.strip()]
+    return tokens
+
+input_string = "question,name,metadata:distance,hasCategory:title,description;hasChildren:name|hasAssociatedQuestion:question"
+
+def parse_tokens(tokens):
+    elements = {}
+    current_label = None
+    subfields = []
+
+    for i, token in enumerate(tokens):
+        next_token = tokens[i + 1] if i + 1 < len(tokens) else None
+        
+        if next_token:
+            if next_token == ':':
+                current_label = token
+            elif next_token in [',', ';', '|']:
+                if current_label:
+                    subfields.append(token)
+                else:
+                    elements[token] = None
+            else:
+                if current_label:
+                    subfields.append(token)
+                else:
+                    elements[token] = None
+        else:
+            # Handling the last token
+            if current_label:
+                # If it's part of subfields collection
+                subfields.append(token)
+                elements[current_label] = subfields if len(subfields) > 1 else subfields[0]
+            else:
+                # It's a standalone field, add to elements
+                elements[token] = None
+
+    return elements
+
+# Example string
+input_string = "question,name,metadata:distance,hasCategory:title,description;hasChildren:name|hasAssociatedQuestion:question"
+tokens = split_into_tokens(input_string)
+parsed_data = parse_tokens(tokens)
+print(parsed_data)
+
+
+
+
+
+
+
+
+
+def parse_tokens(tokens):
+    elements = {}
+    current_label = None
+    subfields = []
+
+    for i, token in enumerate(tokens):
+        next_token = tokens[i + 1] if i + 1 < len(tokens) else None
+
+        if next_token == ':':
+            current_label = token
+        elif current_label:
+            subfields.append(token)
+            if next_token in [';', '|']:
+                elements[current_label] = subfields if len(subfields) > 1 else subfields[0]
+                current_label = None
+                subfields = []
+        elif next_token in [';', '|']:
+            current_label = None
+        elif next_token == ',':
+            elements[token] = None
+
+    return elements
+
+# Example string and parsing
+input_string = "question,name,metadata:distance,hasCategory:title,description>hasChildren:name|hasAssociatedQuestion:question"
+tokens = split_into_tokens(input_string)
+parsed_data = parse_tokens(tokens)
+print(parsed_data)
+
+
+
+"question,name,metadata:distance,hasCategory:title,description>hasChildren:name,description,hasAssociatedQuestion:question,name"
+"question,name,metadata:distance,hasCategory:title,description>(hasChildren:name,description,hasAssociatedQuestion:question,name)"
+"question,name,metadata:distance,hasCategory:title,description>(hasChildren:name,description,hasAssociatedQuestion:question,name)"
+s = "question,name,metadata:distance,hasCategory:title,description>hasChildren:name,hasAssociatedQuestion:question,name"
+s.split(',')
+
+
+
+import re
+
+def extract_fields(input_string):
+    # Regex pattern to match fields and their possible values
+    pattern = r'(\w+)(?::\s*([^:>]+))?'
+    
+    # Find all matches in the input string
+    matches = re.findall(pattern, input_string)
+    
+    # Creating a dictionary to store the results
+    result = {}
+    for field, values in matches:
+        if values:
+            # Split values on comma and strip spaces
+            result[field] = [v.strip() for v in values.split(',')]
+        else:
+            # No values, just the field
+            result[field] = None
+
+    return result
+
+# Example usage
+input_string = "question,name,metadata:distance,hasCategory:title,description>hasChildren:name,description,hasAssociatedQuestion:question,name"
+print(extract_fields(input_string))
+
+
+
+
+
+import re
+
+def parse_field_values(text):
+    # Regex to match field names and their associated values
+    pattern = r"(?P<field>\w+)(?::(?P<values>(?:[^:]+?(?=\w+:|$))))?"
+    matches = re.finditer(pattern, text)
+    result = {}
+    for match in matches:
+        field = match.group('field')
+        values = match.group('values')
+        if values:
+            values = [value.strip() for value in values.split(',')]
+        result[field] = values
+    return result
+
+# Example usage
+text = "question,name,metadata:distance,hasCategory:title,description>hasChildren:name,description,hasAssociatedQuestion:question,name"
+result = parse_field_values(text)
+print(result)
+
+
+import re
+
+def split_on_word_colon(text):
+    # Regex pattern to identify a word followed by a colon as the separator
+    pattern = r'\b\w+:\b'
+    # Split the text using the defined pattern
+    parts = re.split(pattern, text)
+    # Return the split parts, filtering out any empty strings
+    return [part.strip() for part in parts if part.strip()]
+
+# Example usage
+text = "field1:value1 field2:value2 field3:value3"
+result = split_on_word_colon(text)
+print(result)
+
+
+
+
+
+
+
+
+
+
+
+
+from pyparsing import Word, alphas, alphanums, Optional, delimitedList, Group, Suppress, oneOf
+
+fieldName = Word(alphas)
+value = Word(alphanums)
+fieldWithValue = Group(fieldName + Suppress(":") + delimitedList(value))
+
+nestedField = Group(fieldWithValue + Optional(Suppress(">") + fieldWithValue))
+
+expression = delimitedList(fieldName | nestedField)
+
+# Sample input
+sample = "question,name,metadata:distance,hasCategory:title,description>hasChildren:name,description,hasAssociatedQuestion:question,name"
+
+sample='metadata:distance'
+# Parse the input
+parsed_result = expression.parseString(sample)
+
+# Print parsed results
+print(parsed_result.asList())
+
+
+from pyparsing import Word, alphas, OneOrMore, Combine
+field = Word(alphas)
+
+value = delimitedList(field)
+
+field_value = Combine(field + Suppress(":") + value)
+
+parser = OneOrMore(field | field_value)
+
+
+sample_string = "question,name,metadata:distance,hasCategory:title,description>hasChildren:name,description,hasAssociatedQuestion:question,name"
+list(parser.searchString(sample_string))
+
+for word in found_words:
+    print(word[0])
+
+
+### 555555
+from pyparsing import Word, alphas, Combine, Suppress, delimitedList, Optional, OneOrMore, FollowedBy, NotAny
+
+# Define a parser for a simple word made up of alphabet characters
+field = Word(alphas)
+
+# Define a parser for values, which can be one or more comma-separated words,
+# but ensure that a value does not precede a word followed by a colon
+value = delimitedList(Combine(field + ~FollowedBy(Suppress(":"))))
+
+# Define a parser for "field:value" format
+field_value = Combine(field + Suppress(":") + value)
+
+# Define the main parser that prefers "field:value" over just "field"
+parser = OneOrMore(field_value | field)
+
+# Sample string
+sample_string = "question,name,metadata:distance,hasCategory:title,description>hasChildren:name,description,hasAssociatedQuestion:question,name"
+
+# Extract fields and field:value pairs
+results = parser.searchString(sample_string)
+
+# Print results
+for result in results:
+    print(result[0])
+
+### 6666
+from pyparsing import Word, alphas, Combine, Suppress, delimitedList, Optional, OneOrMore, FollowedBy, NotAny
+
+field = Word(alphas)
+value = delimitedList(Combine(field + ~FollowedBy(Suppress(":"))), combine= True)
+field_value = Combine(field + ":" + value)
+complex_field_value = Group(field_value + ">" + OneOrMore(field_value))
+complex_field_value.setParseAction(lambda tokens: ("complex_field_value", "".join(str(t) for t in tokens)))
+parser = OneOrMore(complex_field_value | field_value | field.setParseAction(lambda tokens: ("field", tokens[0])))
+sample_string = "question,name,metadata:distance,hasCategory:title,description>hasChildren:name,description,hasAssociatedQuestion:question,name"
+
+field_value.setParseAction(lambda tokens: ("field_value", " ".join(tokens)))
+results = parser.searchString(sample_string)
+
+for result in results:
+    print(result)
+
+
+### 7777
+from pyparsing import Word, alphas, Combine, Suppress, delimitedList, Optional, OneOrMore, FollowedBy, NotAny
+
+
+
+
+
+
+field.parseString('jjjj')
+
+parse_atomic_return_ref(field_value[0])
+
+value=['hasCategory:title,description', 'hasChildren:name,description']
+
+field_value=parsed_fields[2][0][1]
+value=parsed_fields[3][0][1]
+
+
+for result in results:
+    print(result)
+
+
+node_col.q('name=Roommate', 'name,hasChildren:name')
+
+
+
+field = Word(alphas).setParseAction(lambda tokens: ("field", tokens[0]))
+value = delimitedList(Combine(field + ~FollowedBy(Suppress(":"))), combine= True)
+field_value = Combine(field + ":" + value)
+complex_field_value = Group(field_value + ">" + OneOrMore(field_value))
+complex_field_value.setParseAction(lambda tokens: ("complex_field_value", "".join(str(t) for t in tokens)))
+parser = OneOrMore(complex_field_value | field_value | field)
+sample_string = "question,name,metadata:distance,hasCategory:title,description>hasChildren:name,description,hasAssociatedQuestion:question,name"
+
+field_value.setParseAction(lambda tokens: ("field_value", " ".join(tokens)))
+results = parser.searchString(sample_string)
+
+for result in results:
+    print(result)
+
+
+results[2][0]
+results[3]
 
 res=[]
 for i in return_fields:
