@@ -73,7 +73,7 @@ def delete_many_refs(clt, refs):
 
 def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,return_raw=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
     try:
-        w_filter=get_translate_filter(self,filters_str,query_vector,context)
+        w_filter=get_translate_filter(self,filters_str,context)
         ret_prop,ret_ref,ret_meta,include_vector=get_weaviate_return_fields(self,return_fields)
 
         if query_vector != None:
@@ -395,13 +395,14 @@ def get_compiler(allowed_fields):
     except StopProcessingException as e:
         console.print(e)
 
-def get_translate_filter(col,filters_str=None,query_vector=None,context={}):
+def get_translate_filter(col,filters_str=None,context={}):
     # if filters_str == None and query_vector == None:
     #     raise StopProcessingException('[bold blue]One of filters_str or query_vector parameter should be set')
     if filters_str == None: return None
     
     if is_uuid_valid(filters_str):
-        operations=[['uuid', '=', filters_str]]
+        operations=[{'field': 'uuid', 'operator': '=', 'value': filters_str}]
+        # operations=[['uuid', '=', filters_str]]
     else:
         operations=col.metal.compiler.parseString(filters_str,parse_all=True)
     w_filter=get_composed_weaviate_filter(col,operations[0],context)
@@ -411,20 +412,20 @@ def get_composed_weaviate_filter(clt,operations,context={}):
     if len(operations) == 0:
         return None
     elif isinstance(operations, list) and isinstance(operations[0], dict):
-        return [get_composed_weaviate_filter(clt,item) for item in operations]
+        return [get_composed_weaviate_filter(clt,item,context) for item in operations]
     elif isinstance(operations, dict) and len(operations) == 1:
         for key, value in operations.items():
-            op_left = get_composed_weaviate_filter(clt,value[0])
+            op_left = get_composed_weaviate_filter(clt,value[0],context)
             if key == 'and':
-                return reduce(lambda acc, x: acc & get_composed_weaviate_filter(clt,x), value[1:], op_left)
+                return reduce(lambda acc, x: acc & get_composed_weaviate_filter(clt,x,context), value[1:], op_left)
             elif key == 'or':
-                return reduce(lambda acc, x: acc | get_composed_weaviate_filter(clt,x), value[1:], op_left)
+                return reduce(lambda acc, x: acc | get_composed_weaviate_filter(clt,x,context), value[1:], op_left)
     else:
         return get_atomic_weaviate_filter(clt,operations['field'],operations['operator'], operations['value'],context)
 
 def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
-    if prop in context:
-        value = context[prop]
+    if value in context:
+        value = context[value]
     prop_names, ref_names = col.metal.props, col.metal.refs
     w_filter=Filter
     prop_split=prop.split('.')
@@ -474,6 +475,12 @@ def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
         #     console.print_exception(show_locals=True)
 
     w_filter = getattr(w_filter, OPERATORS[op_symbol])
+
+    if __(col.metal.context).get(f'types.{col.name}.{prop}') == 'NUMBER':
+        try:
+            value=float(value)
+        except Exception as e:
+            f'{prop} should be a NUMBER'
     w_filter = w_filter(value)
     return w_filter
 
@@ -498,6 +505,8 @@ def get_return_field_compiler():
     return parser
 
 def get_weaviate_return_fields(col,return_fields_str):
+    if return_fields_str == None:
+        return None,None,None,False
     parsed_types=col.metal.compiler_return_f.searchString(return_fields_str)
     weaviate_return = get_weaviate_return(parsed_types)
     return weaviate_return
@@ -510,14 +519,16 @@ def get_weaviate_return(parsed_types):
         if field_type == 'simple':
             if i_parsed == 'vector':
                 include_vector = True
-            ret_prop.append(i_parsed)
+            else:
+                ret_prop.append(i_parsed)
         if field_type == 'valued':
             if i_parsed.startswith('vector:'):
                 include_vector=i_parsed.split(':')[1].split(',')
-            if i_parsed.startswith('metadata:'):
+            elif i_parsed.startswith('metadata:'):
                 meta_bool={i:True for i in i_parsed.split(':')[1].split(',')}
-                ret_metadata.append(MetadataQuery(**meta_bool))
-            ret_ref.append(atomic_return_ref(i_parsed))
+                ret_metadata = MetadataQuery(**meta_bool)
+            else:
+                ret_ref.append(atomic_return_ref(i_parsed))
         if field_type == 'nested':
             i_parsed.reverse()
             def f(acc, f_v):
