@@ -14,7 +14,7 @@ setup(
                       'weaviate-client>=4.6.0, <5.0.0',
                       'rich>=13.0.0, <14.0.0',
                       'jmespath>=1.0.0, <2.0.0',
-                      'pandas>=2.0.0, <3.0.0',
+                      'pandas>=2.2.2, <3.0.0',
                       'full-metal-monad @ git+https://github.com/thedeepengine/full-metal-monad.git'],
     extras_require={
         'dev': [

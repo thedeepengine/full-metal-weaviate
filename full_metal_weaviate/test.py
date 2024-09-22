@@ -11,6 +11,9 @@ from full_metal_weaviate.main import get_metal_client,get_weaviate_client
 
 global weaviate_client, client
 
+client_weaviate=get_weaviate_client('localhost')
+client_weaviate=get_metal_client(client_weaviate)
+
 def get_test_clt():
     opposite_refs = ['JeopardyQuestion.hasCategory<>JeopardyCategory.hasQuestion',
                     'JeopardyQuestion.hasAssociatedQuestion<>JeopardyQuestion.associatedQuestionOf']
@@ -148,11 +151,105 @@ JeopardyQuestion.metal.compiler
 ######### test get_weaviate_return_fields
 ###########################################################################
 
+# single simple properties
+return_fields='name'
+
+# multiple simple properties
+return_fields='name,date,attr'
+
+# single reference
+return_fields='hasChildren:name'
+
+# single reference, multiple properties
+return_fields='hasChildren:name,value,content'
+
+# multiple reference logical and
+return_fields='hasChildren:name,hasInstance:name'
+
+# single nested reference without parent properties, fetch only name of the children of children
+return_fields='hasChildren.hasChildren:name'
+
+# nested reference with parent properties, fetch name of children and name of children of children
+return_fields='hasChildren:name>hasChildren:name'
+
+# deep nesting
+return_fields='hasChildren:name>hasChildren:name>hasChildren:name'
+
+# deep nested reference, get name of children at 3 level deep and get the name of hasAttrUuid at the last nested children level
+return_fields='hasChildren.hasChildren.hasChildren:name>hasAttrUuid:name'
+
+# deep nesting with different refs for each level
+return_fields='hasChildren:name>(hasAttrUuid:name,hasChildren.name>(hasAttrUuid:name,hasChildren.name))'
+
+# distribution of nesting operation to operation, logical and
+return_fields='hasChildren.name>(hasAttrUuid.hasChildren:name,hasChildren.name)'
+# equivalent of 
+return_fields='hasChildren.name>hasAttrUuid.hasChildren:name,hasChildren.name>hasChildren.name'
+
+
+
+# deep nesting
+return_fields='hasChildren:name>hasChildren:name,hasOntology:name>hasChildren:name'
+return_fields='hasChildren:name,hasChildren:name>hasOntology:name,hasChildren:name'
+
+
+
+
+
+
+
+
+from pyparsing import Regex, Combine, ZeroOrMore, Forward, Group, Suppress, delimitedList, FollowedBy, Optional, NotAny
+
+# Define the basic identifier used for properties and reference names
+identifier = Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
+
+# A field can now include multiple properties separated by commas, stopping if it looks ahead and finds a ':' indicating another field or reference
+properties = Group(identifier + ZeroOrMore(',' + identifier))
+field = Combine(identifier + Optional(':' + properties + NotAny("," + identifier + ":")))
+
+# Forward declaration for nested expressions to handle recursive patterns
+nested_expr = Forward()
+
+# Define how nested structures are formatted, using ">" to indicate deeper nesting
+nested_structure = Group(field + ZeroOrMore(Suppress('>') + nested_expr))
+
+# This is the recursive rule that allows nested structures or plain nested expressions
+nested_expr <<= nested_structure | delimitedList(nested_expr, delim=',')
+
+# The entire query expression consists of one or more nested expressions separated by commas
+query_expr = delimitedList(nested_expr, delim=',')
+
+return_fields='hasChildren.hasChildren:name,value,content>hasChildren:name'
+# return_fields='hasChildren:name'
+parsed_result=query_expr.parseString(return_fields, parseAll=True)
+print(parsed_result.asList())
+
 
 parser_return_field=get_return_field_compiler()
 return_fields_str = "question,name,metadata:distance,hasCategory:title,description>hasChildren:name,description,hasAssociatedQuestion:question,name"
 parsed_types = parser_return_field.searchString(return_fields_str)
 ret_prop,ret_ref,ret_metadata,include_vector=get_weaviate_return_fields(parsed_types)
+
+
+
+
+
+###########################################################################
+######### test return fields
+###########################################################################
+
+
+return_fields='name,'+'>'.join(['hasChildren:name>hasAttrUuid:name']*4)
+return_fields='name,'+'>'.join(['(hasChildren:name>hasAttrUuid:name)']*4)
+return_fields='name,hasChildren:name>hasChildren:name>hasChildren:name>hasChildren:name'
+return_fields='name,hasChildren:name>hasChildren:name,hasChildren:name>hasAttrUuid:name'
+return_fields='name,hasAttrUuid:name,hasChildren:name>(hasAttrUuid:name,hasChildren:name>(hasAttrUuid:name,hasChildren:name))'
+return_fields='name,hasChildren:name>hasAttrUuid:name'
+
+
+
+
 
 
 ###########################################################################
@@ -268,16 +365,54 @@ node_col.metal.
 
 a=node_col.q('name=Roommate', 'name;;hasChildren:name;hasChildren:name')
 
+# no return_fields set
+node_col.metal_query('name=Roommate')
 
+
+node_col.metal_query('name=Roommate', return_fields='name')
+
+
+node_col.metal_query('name=10022', return_fields='name,hasChildren:attrName,attrUuid>instanceOf:name,instanceOf:name,instanceOf:name')
+
+
+all_ref = node_col
+
+
+[i.name for i in a.references]
+[QueryReference(link_on=i.name) for i in a.references]
+
+uuid = '6ded3907-24ac-46de-84ab-c75fbbc7fe32'
+uuid = '1d30586a-1e77-4a90-9237-32cfec4e87db'
+s=node_col.query.fetch_objects(filters=Filter.by_id().equal(uuid),
+                             return_references=[QueryReference(link_on=i.name) for i in a.references])
+
+s.objects[0].references['hasChildren'].objects
+
+ return_references=QueryReference(link_on="has_assembly")
+
+
+element.query.fetch_objects(filters=Filter.by_id().equal(single_uuid), return_references=QueryReference(link_on="has_assembly"))
+# capturing the fundamental incommensurables axis of complexities.
+# disambiguation is a set of heuristics. it goes through
+
+# related to the complexity map, some system shares commonalitiles.
+# it allows to understand the main axis your system evolves in.
 # differente dimensions of information
 # create categories, put together objects with similar properties, so you can act on it.
 # thats pretty much what statistical models are doing, neural networks
 # information reduction like in 
 # moving up and down the abstraction ladder
 # create relationships, as a network
-
+# mece, get spaces that are mece
 # some models would fail in some odd ways.
 # structural fail or data fail
+
+# first thing, some concepts have common properties.
+# even more, it shows an idea of fundamentality.
+# can we have those funadmentalitles as entities and look at their properties,
+# classify, categories them, etc...
+
+# we'll still need observatlibity, check what's happening.
 
 ###################################################
 ##### test get_translate_filter ###################
@@ -318,9 +453,6 @@ y=compiler.parseString(filters_str,parseAll=True)
 y[0]
 
 
-filter='name=John&age>30&department=Sales'
-filter='name=John&age>30'
-
 
 compiler=get_compiler(allowed_fields)
 y=compiler.parseString('name=John&age>30&department=Sales|name=Sarah',parseAll=True)
@@ -338,7 +470,75 @@ col=JeopardyQuestion
 w_filter=get_translate_filter(JeopardyQuestion,filters_str)
 
 
+compiler=get_compiler(['aa', 'bb', 'cc'])
+compiler.parseString('aa=dddd',parse_all=True)
+
+compiler.parseString('aa=dddd',parse_all=True)
+
+
 d=get_composed_weaviate_filter(col,operations,context)
+
+
+
+
+
+
+client_weaviate=get_weaviate_client('localhost')
+client=get_metal_client(client_weaviate)
+node_col=client.get_metal_collection('NodeTest')
+
+
+
+client_weaviate.    
+
+home_uuid = '34317173-4aeb-4452-b1cb-1924dba65b82'
+obj_type = 'Home'
+
+filters_str='name=roommates'
+return_fields='name'
+self=node_col
+context={}
+ont_uuid_map = node_col.q(filters_str,return_fields)
+
+
+col = client_weaviate.collections.get('Node4')
+col = client_weaviate.collections.get('TableMetadata2')
+col.query.fetch_objects()
+
+node_col.query.fetch_objects()
+                filters=w_filter,
+                return_properties=ret_prop,
+                limit=limit)
+
+attrToQuery='attrName = all_profile_vec'
+namespaceRoommate = '&childrenOf.instanceOf.name = Roommate'
+filterOnLivingRoommates = '&childrenOf.name any living_users_id'
+
+filters_str = attrToQuery+namespaceRoommate+filterOnLivingRoommates
+filters_str='childrenOf.name any living_users_id'
+closest_profile=node_col.q(filters_str,
+                        context={'living_users_id': ['10309', '20000']},
+                        return_fields='name',
+                        # return_fields='name,value,metadata:distance,childrenOf:name',
+                        # query_vector=profile_vec,
+                        target_vector='content',
+                        limit = 1000)
+
+
+get_atomic_weaviate_filter(node_col, 'childrenOf.name', 'any', 'living_users_id', context)
+self = node_col
+
+##############
+## test get_weaviate_return
+########
+
+ret_compiler=get_return_field_compiler()
+parsed_types=ret_compiler.searchString('name,vector:container')
+parsed_types=ret_compiler.searchString('name,vector')
+ret_prop,ret_ref,ret_metadata,include_vector=get_weaviate_return(parsed_types)
+
+get_weaviate_return()
+
 
 ident.parseString(filter)
 condition.parseString(filter)
@@ -482,8 +682,7 @@ to_load = [
 ######## test metal_query ##############################
 ########################################################
 
-client=get_metal_client(client_weaviate)
-node_col=client.get_metal_collection('NodeTest', force_reload = True)
+node_col=client_weaviate.get_metal_collection('NodeTest')
 node_col.metal_query('78345914-5f87-40f9-9f77-30802a547c05')
 
 f=get_metal_collection(client_weaviate, 'NodeTest', True)
@@ -501,6 +700,11 @@ self = client_weaviate
 clt = node_col
 filters_str = '78345914-5f87-40f9-9f77-30802a547c05'
 
+
+
+# no return_fields
+
+node_col.q('name = test')
 
 
 import importlib

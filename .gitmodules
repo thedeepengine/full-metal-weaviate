@@ -1,0 +1,3 @@
+[submodule "full_metal_weaviate_ui/vue_app/src/components_shared"]
+	path = full_metal_weaviate_ui/vue_app/src/components_shared
+	url = git@github-thedeepengine:thedeepengine/vue3-component.git

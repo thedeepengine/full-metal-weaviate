@@ -93,7 +93,7 @@ def get_opposite(self, key=None):
             else:
                 return opposite
     except Exception as e:
-        console.print(f'No opposite found for {key}. Show example ')
+        raise StopProcessingException(f'[error] No opposite found for {key}')
 
 class MetalClientContext:
     def __init__(self, client_weaviate):
