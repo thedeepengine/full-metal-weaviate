@@ -10,7 +10,7 @@ from rich.traceback import install
 from weaviate.classes.query import MetadataQuery, Filter, QueryReference
 from weaviate.exceptions import WeaviateBaseError
 from weaviate.util import generate_uuid5,get_valid_uuid
-from pyparsing import ZeroOrMore, FollowedBy, Suppress, delimitedList, nestedExpr,Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc,Optional
+from pyparsing import ZeroOrMore, FollowedBy, Suppress, delimitedList, nestedExpr,Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc,Optional, oneOf,OneOrMore
 from rich.table import Table
 
 from full_metal_monad import __
@@ -74,7 +74,7 @@ def delete_many_refs(clt, refs):
 def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,return_raw=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
     try:
         w_filter=get_translate_filter(self,filters_str,context)
-        ret_prop,ret_ref,ret_meta,include_vector=get_weaviate_return_fields(self,return_fields)
+        ret_prop,ret_ref,ret_meta,include_vector=get_weaviate_return_fields(self.metal.compiler_return_f,return_fields)
 
         if query_vector != None:
             res = self.query.near_vector(
@@ -505,89 +505,105 @@ def get_return_field_compiler():
             return {'nested': t.asList()}
     nested_structure = Group(field + ZeroOrMore(Suppress('>') + nested_expr).setParseAction(g))
 
-    def f(t): return {'and': t[0].asList()}
+    def f(t): 
+        return {'and': t[0].asList()}
 
     nested_expr <<= nested_structure | nestedExpr(content=delimitedList(nested_expr)).setParseAction(f)
     query_expr = delimitedList(nested_expr, delim=',')
     return query_expr
 
-def get_weaviate_return_fields(col, return_str):
-    items=col.metal.compiler_return_f.parseString(return_str, parseAll=True).asList()
+# def get_weaviate_return_fields(compiler, return_str):
+#     if return_str == None: return [],[],[],[]
+#     ret_prop,ret_ref,ret_meta,inc_vec=[],[],[],[]
+#     items=compiler.parseString(return_str, parseAll=True).asList()
+#     has_and=bool(re.compile(r"\{'and':").search(str(items)))
+#     if has_and:
+#         items=distribute_and(items)
+#         items=[compiler.parseString(i, parseAll=True).asList() for i in items]
+#         items=[i[0] for i in items]
 
-    ret_prop,ret_ref,ret_meta,inc_vec=[],[],[],[]
-    for comma_sep_item in items:
-        t_ret_prop,t_ret_ref,t_ret_meta,t_inc_vec=w_return_recurse(comma_sep_item, [], [], [], False)
-        if t_ret_prop: ret_prop.append(t_ret_prop)
-        if t_ret_ref: ret_ref.append(t_ret_ref)
-        if t_ret_meta: ret_meta.append(t_ret_meta)
-        if t_inc_vec: inc_vec.append(t_inc_vec)            
-    return ret_prop,ret_ref,ret_meta,inc_vec
+#     for comma_sep_item in items:
+#         t_ret_prop,t_ret_ref,t_ret_meta,t_inc_vec=w_return_recurse(comma_sep_item, [], [], [], False)
+#         if t_ret_prop: ret_prop.append(t_ret_prop)
+#         if t_ret_ref: ret_ref.append(t_ret_ref[0])
+#         if t_ret_meta: ret_meta.append(t_ret_meta)
+#         if t_inc_vec: inc_vec.append(t_inc_vec)   
+#     return ret_prop,ret_ref,ret_meta,inc_vec
 
-def set_last_level_nesting(query_ref, new_ref):
-    if query_ref.return_properties == '$$$metal_temp_ref$$$':
-        query_ref.return_properties = None
-    if query_ref.return_references != None:
-        set_last_level_nesting(query_ref.return_references,new_ref)
-    else:
-        query_ref.return_references = new_ref
+# def w_return_recurse(items, ret_prop, ret_ref, ret_meta, inc_vec,props=None,refs=None):
+#     print('items: ', items)
+#     item=items[0]
+#     next_items=None
+#     if isinstance(item, str):
+#         if item.startswith('vector:'):
+#             inc_vec=item.split(':')[1].split(',')
+#         elif item.startswith('metadata:'):
+#             meta_bool={i:True for i in item.split(':')[1].split(',')}
+#             ret_meta = MetadataQuery(**meta_bool)
+#         elif item == 'vector':
+#             inc_vec = True
+#         elif ':' in item or (refs is not None and item in refs):
+#             ret_ref.append(atomic_return_ref(item))
+#         elif props == None or (item in props):
+#             ret_prop = item
+#         next_items=items[1:] if len(items)>1 else []
+#     elif isinstance(item, dict):
+#         if 'nested' in item:
+#             if isinstance(item['nested'][0], list):
+#                 nested_str=item['nested'][0][0]
+#                 new_ref=atomic_return_ref(nested_str)
+#                 for i in ret_ref:
+#                     set_last_level_nesting(i,new_ref)
+#                 next_items=[item['nested'][0][1]] if len(item['nested'][0]) > 1 else None
+#             else:
+#                 next_items=item['nested']
 
-def w_return_recurse(items, ret_prop, ret_ref, ret_meta, inc_vec,props=None,refs=None):
-    print('items: ', items)
-    item=items[0]
-    next_items=None
-    if isinstance(item, str):
-        if item.startswith('vector:'):
-            inc_vec=item.split(':')[1].split(',')
-        elif item.startswith('metadata:'):
-            meta_bool={i:True for i in item.split(':')[1].split(',')}
-            ret_meta = MetadataQuery(**meta_bool)
-        elif item == 'vector':
-            inc_vec = True
-        elif ':' in item or (refs is not None and item in refs):
-            ret_ref.append(atomic_return_ref(item))
-        elif item in props or (props == None):
-            ret_prop = item
-        next_items=items[1:] if len(items)>1 else []
-    elif isinstance(item, dict):
-        if 'nested' in item:
-            if isinstance(item['nested'][0], list):
-                nested_str=item['nested'][0][0]
-                new_ref=atomic_return_ref(nested_str)
-                for i in ret_ref:
-                    set_last_level_nesting(i,new_ref)
-                next_items=[item['nested'][0][1]] if len(item['nested'][0]) > 1 else None
-            else:
-                next_items=item['nested']
-        elif 'and' in item:
-            nb_and=len(item['and'])
-            ret_ref=[copy.deepcopy(item) for item in ret_ref for _ in range(nb_and)]
-            for i,v in enumerate(item['and']):
-                new_ref=atomic_return_ref(v[0])
-                set_last_level_nesting(ret_ref[i],new_ref)
-            
-            next_items=item['and']
- 
-    if next_items:
-        ret_prop,ret_ref,ret_meta,inc_vec=w_return_recurse(next_items, ret_prop, ret_ref, ret_meta, inc_vec)
-    return ret_prop,ret_ref,ret_meta,inc_vec
+#     if next_items:
+#         ret_prop,ret_ref,ret_meta,inc_vec=w_return_recurse(next_items, ret_prop, ret_ref, ret_meta, inc_vec)
+#     return ret_prop,ret_ref,ret_meta,inc_vec
 
-def extract_paths(array, prefix=''):
-    result = []
-    for item in array:
-        if isinstance(item, list) and len(item) == 2:
-            key, value = item
-            if isinstance(value, dict) and 'nested' in value:
-                new_prefix = f"{prefix}{key}>"
-                result.extend(extract_paths(value['nested'], new_prefix))
-            elif isinstance(value, list):
-                new_prefix = f"{prefix}{key}>"
-                result.extend(extract_paths(value, new_prefix))
-        elif isinstance(item, list) and len(item) == 1:
-            new_prefix = f"{prefix}{item[0]}"
-            result.append(new_prefix.strip('>'))
-        elif isinstance(item, dict) and 'and' in item:
-            result.extend(extract_paths(item['and'], prefix))
-    return result
+
+# def atomic_item(item,props,refs):
+#     if item.startswith('vector'):
+#         if item.startswith('vector:'):
+#             inc_vec=item.split(':')[1].split(',')
+#         else:
+#             inc_vec = True
+#     elif item.startswith('metadata:'):
+#         meta_bool={i:True for i in item.split(':')[1].split(',')}
+#         ret_meta = MetadataQuery(**meta_bool)
+#     elif ':' in item or (refs is not None and item in refs):
+#         ret_ref.append(atomic_return_ref(item))
+#     elif props == None or (item in props):
+#         ret_prop = item
+#     return ret_prop, ret_ref
+
+
+# def set_last_level_nesting(query_ref, new_ref):
+#     if query_ref.return_properties == '$$$metal_temp_ref$$$':
+#         query_ref.return_properties = None
+#     if query_ref.return_references != None:
+#         set_last_level_nesting(query_ref.return_references,new_ref)
+#     else:
+#         query_ref.return_references = new_ref
+
+# def distribute_and(array, prefix=''):
+#     result = []
+#     for item in array:
+#         if isinstance(item, list) and len(item) == 2:
+#             key, value = item
+#             if isinstance(value, dict) and 'nested' in value:
+#                 new_prefix = f"{prefix}{key}>"
+#                 result.extend(distribute_and(value['nested'], new_prefix))
+#             elif isinstance(value, list):
+#                 new_prefix = f"{prefix}{key}>"
+#                 result.extend(distribute_and(value, new_prefix))
+#         elif isinstance(item, list) and len(item) == 1:
+#             new_prefix = f"{prefix}{item[0]}"
+#             result.append(new_prefix.strip('>'))
+#         elif isinstance(item, dict) and 'and' in item:
+#             result.extend(distribute_and(item['and'], prefix))
+#     return result
 
 def atomic_return_ref(field_value):
     try:
@@ -631,6 +647,76 @@ def extract_object(res, include_vector=False):
         return result
 
     return [recursive_extract(i) for i in res.objects]
+
+
+def merge_keys(parsed_data):
+    prop=[i for i in parsed_data if 'property' in i]
+    merged_prop=[i['property'] for i in prop]
+    ref=[i for i in parsed_data if 'reference' in i]
+    merged_ref=[i['reference'] for i in ref]
+    nested=[i for i in parsed_data if 'nested' in i]
+    if len(nested) > 0:
+        nested=nested[0]['nested']
+    else:
+        nested=[]
+    return merged_prop, merged_ref, nested
+
+def recurse(parsed_data, res=None):
+    if len(parsed_data) == 0: return None
+    if res is None:
+        res = []
+
+    _,ref,nested=merge_keys(parsed_data)
+    if nested:
+        prop2,ref2,nested2=merge_keys(nested[1])
+        nested_ref = nested[0]['reference']
+        if ':' not in nested_ref:
+            nested_ref+=':'
+        nested_ref+=','.join(prop2)
+        nested = atomic_return_ref(nested_ref)
+        nested.return_references = [atomic_return_ref(i) for i in ref2]
+
+    for i in ref: res.append(atomic_return_ref(i))
+
+    if nested:
+        if len(nested2) == 0:
+            res.append(nested)
+            return res
+        else:
+            if nested.return_references == None:
+                nested.return_references = []
+            nested.return_references+=recurse(nested2)
+            res.append(nested)
+    return res
+
+
+def get_weaviate_return_fields(compiler, return_fields):
+    parsed_data=compiler.parseString(return_fields, parseAll=True).asList()
+    props=[i['property'] for i in parsed_data if 'property' in i] 
+    parsed_data=[i for i in parsed_data if 'property' not in i]
+    refs=recurse(parsed_data)
+    return props, refs
+
+def get_return_compiler():
+    basic_prop=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
+    property = Combine(basic_prop + ~FollowedBy(oneOf("> :")))
+    value = Regex("\\s*[_A-Za-z][_0-9A-Za-z]{0,230}(\\.[_A-Za-z][_0-9A-Za-z]{0,230})*\\s*")
+    values = delimitedList(Combine(value + ~FollowedBy(oneOf(":"))), combine= True)
+    property.setParseAction(lambda t: {'property': t[0]})
+    nested_expr = Forward()
+    reference = Combine(value+':'+values+Suppress(Optional('>'))) | value+Suppress('>')
+
+    def get_ref(t):
+        return {'reference': t[0]}
+        
+    reference.setParseAction(get_ref)
+    nested = reference + OneOrMore(nestedExpr(content=nested_expr) | Group(reference) | values)
+    nested.setParseAction(lambda t: {'nested':t.asList()})
+
+    expression = delimitedList(nested|reference|property)
+    nested_expr <<= expression
+    nested_expr.parseString('hasChildren.hasChildren:name', parseAll=True).asList()
+    return nested_expr
 
 OPERATORS = {
     '!=': 'not_equal',

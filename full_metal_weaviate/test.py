@@ -14,6 +14,9 @@ global weaviate_client, client
 client_weaviate=get_weaviate_client('localhost')
 client_weaviate=get_metal_client(client_weaviate)
 
+node_col=client_weaviate.get_metal_collection('NodeTest')
+node_col.q()
+
 def get_test_clt():
     opposite_refs = ['JeopardyQuestion.hasCategory<>JeopardyCategory.hasQuestion',
                     'JeopardyQuestion.hasAssociatedQuestion<>JeopardyQuestion.associatedQuestionOf']
@@ -193,9 +196,48 @@ return_fields='hasChildren:name>hasChildren:name,hasOntology:name>hasChildren:na
 return_fields='hasChildren:name,hasChildren:name>hasOntology:name,hasChildren:name'
 
 
+t=['name',
+   'name,date,attr',
+   'name,date,attr,vector',
+   'name,date,attr,vector:content',
+   'hasChildren:name',
+   'name,hasChildren:name',
+   'name,date,hasChildren:name',
+   'name,date,hasChildren:name,value,content',
+   'hasChildren:name,value,content',
+    'hasChildren:name,hasInstance:name',
+    'hasChildren.hasChildren:name',
+    'hasChildren:name,value,hasChildren:name',
+    'hasChildren:name>hasChildren:name',
+    'hasChildren:name>hasChildren:name>hasChildren:name',
+    'hasChildren.hasChildren.hasChildren:name>hasAttrUuid:name',
+    'hasChildren>(name,hasAttrUuid:name,hasChildren:name>(hasAttrUuid:name,hasChildren:name))',
+    'hasChildren>(name,hasAttrUuid.hasChildren:name,hasChildren:name)',
+    'hasChildren>(hasAttrUuid.hasChildren:name,hasChildren:name)',
+    'hasChildren.hasChildren>(hasAttrUuid.hasChildren:name,hasChildren:name)',
+    'hasChildren>(name,hasAttrUuid.hasChildren:name,value,attr,hasChildren:name)',
+    'hasChildren>(name,hasAttrUuid.hasChildren:name,value,attr,hasChildren:name,hasAttr:name)',
+    'hasOntology>(name,hasAttrUuid.hasChildren:name,hasOntology:name>hasChildren:name)',
+    'hasOntology>(name,hasAttrUuid.hasChildren:name>hasOntology:name>(hasChildren:name,hasAttr:name))',
+    'name,date,hasOntology:name,hasChildren>(hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name',
+    'name,hasChildren>(name,date,hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name']
+
+for i in t:
+    print(i)
+    print(nested_expr.parseString(i, parseAll=True).asList())
 
 
+'hasChildren:name>hasChildren:name'
 
+
+compiler=get_return_field_compiler()
+
+res=[]
+for i in t:
+    temp = get_weaviate_return_fields(compiler,i)
+    res.append(temp)
+
+res[10]
 
 
 
@@ -1235,144 +1277,30 @@ __(l).startswith('v').truth()
 [i[1][2:] for i in to_load if i[1].startswith('<>')]
 
 
-a=__(['aa', 'bb', 'cc'])
-a=__(['aa', 'bb', 'cc']).original
-a=__(['aa', 'bb', 'cc']).val.startswith('a').__
-a=__(['aa', 'bb', 'cc']).val.startswith('a')
 
 
-# intuitively vectorize pretty much any function
 
 
-a=__(['aa', 'bb', 'cc']).endswith('b').__
 
+colon = Suppress(":")
+comma = Suppress(",")
+gt = Suppress(">")
+# colon = ":"
+# comma = ","
+# gt = ">"
+simple = Word(alphas)
+compound = Group(simple + (colon | gt) + delimitedList(simple))
 
+expr = OneOrMore(Group(compound | simple))
 
-a=__(['aa', 'bb', 'cc']).startswith('a').__
+input_string = "aaaa,bbbb,gggg,jjjj:aaaa,kkkk,llll>gggg,pppp:qqqq"
+parsed = expr.parseString(input_string, parseAll=True)
+parsed
 
-data=['aa', 'bb', 'cc']
+# une bequille comme enregistrer des examples minimaux, le pattern des example
+# plus complexes etant des composition des examples elementaire
 
-a=__(data).startswith('a').val.__
-a=__(data).val.startswith('a').__
+compound.parseString('aaaa>ggg')
 
-
-fields
-
-
-all(isinstance(x, int) for x in fields).trueOrRaise()
-
-
-
-monad = MetalMonad({"name": "Alice", "age": 30, "city": "New York"})
-# Test
-# test non nested dict
-# test nested dict
-Axis:
-- nb_of_fields
-
-assert monad.get(["name", 'age']) == "Alice"
-assert monad.get("age") == 30
-assert monad.get("city") == "New York"
-
-monad.get("nonexistent")
-
-# dict
-
-## boolean function
-## jmespath type
-## list of keys
-
-# list
-
-## boolean function
-## list of indexes
-## list of strings/actual values
-
-__([1,2,3,4]).get([1,2])
-
-data=['dd', 'ggg', 'dd']
-__().get(['dd'])
-
-data={'key1': 'value1', 'key2': 'value2', 'key3': 'value3'}
-__(data).get(['key1', 'key3']).__
-
-
-data=['aa', 'bb', 'cc']
-
-res=[x for x in data if x.startswith('a')]
-
-(data).val.startswith('a')
-
-res=__(data).val.startswith('a').__
-
-a.data
-
-def f(x,y):
-    print(x)
-    print(y)
-    return x,y
-
-f(2,3)
-
-a = [3, 4]
-
-def g(a):
-    # h=f(*a)
-    print(*a,)
-    print(f(*a))
-    # print(h)
-
-g(a)
-
-
-list(enumerate([*a]))
-
-*a,
-string_list = __(['aa', 'bb', 'cc'])
-
-
-
-a=__(['aa', 'bb', 'cc']).startswith('a').filter(lambda x: x).__
-
-
-
-__(string_list).filter(lambda x: __(x).startswith('a'))
-
-
-data=['aa', 'bb', 'cc']
-__(data).inplace.startswith('a')
-
-
-data = MetalMonad(['aa', 'bb', 'cc'])
-a=data.inplace.startswith('a').__
-print(data)  #
-
-
-# Example usage:
-string_list = MyClass(['aa', 'bb', 'cc'])
-string_list.startswith('c').data
-print(result)  # Output: [True, False, False]
-
-
-([i[1][2:] for i in to_load if i[1].startswith('<>')]
-
-a=__(to_load).val.startswith('<>')
-
-list(set([i[1][2:] for i in to_load if i[1].startswith('<>')]))
-
-.map(lambda s: s.upper())
-print(chained_result)  # Output of chained operations
-
-
-list(filter(lambda x:x, [True, False, False, True]))
-
-
-# function_object = locals()[function_name]
-# function_object = globals()[function_name]
-# function_object = getattr(builtins, function_name)
-
-
-
-# select roommate and its child and 
-# show test for return filter function
-
+compound = Group(Word(alphas) + (Literal(';') | Literal('>')) + delimitedList(Word(alphas)))
+OneOrMore(compound).parseString('aaaa>ggg,ll jjj>llll,ppp,ll')
