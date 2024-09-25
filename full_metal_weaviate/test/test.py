@@ -188,5 +188,39 @@ class TestGetExpr(unittest.TestCase):
                 self.fail(f"Failed to parse valid complex expression: {test_input}")
 
 
+
+
+
+t=['name',
+   'name,date,attr',
+   'name,date,attr,vector',
+   'name,date,attr,vector:content',
+   'hasChildren:name',
+   'name,hasChildren:name',
+   'name,date,hasChildren:name',
+   'name,date,hasChildren:name,value,content',
+   'hasChildren:name,value,content',
+    'hasChildren:name,hasInstance:name',
+    'hasChildren.hasChildren:name',
+    'hasChildren:name,value,hasChildren:name',
+    'hasChildren:name>hasChildren:name',
+    'hasChildren:name>hasChildren:name>hasChildren:name',
+    'hasChildren.hasChildren.hasChildren:name>hasAttrUuid:name',
+    'hasChildren6:name>(hasAttrUuid:name,hasChildren:name>(hasAttrUuid:name,hasChildren:name))',
+    'hasChildren:name>(hasAttrUuid.hasChildren:name,hasChildren:name)',
+    'hasChildren>(hasAttrUuid.hasChildren:name,hasChildren:name)',
+    'hasChildren:name>(hasAttrUuid.hasChildren:name,value,attr,hasChildren:name)',
+    'hasChildren:name>(hasAttrUuid.hasChildren:name,value,attr,hasChildren:name,hasAttr:name)',
+    'hasOntology:name>(hasAttrUuid.hasChildren:name,hasOntology:name>hasChildren:name)',
+    'hasOntology:name>(hasAttrUuid.hasChildren:name>hasOntology:name>(hasChildren:name,hasAttr:name))',
+    'name,date,hasOntology:name,hasChildren>(name,date,hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name',
+    'name,date,hasOntology:name,hasChildren>(hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name']
+
+for i in t:
+    print(query_expr.parseString(i, parseAll=True).asList())
+
+
+
+
 if __name__ == "__main__":
     unittest.main()

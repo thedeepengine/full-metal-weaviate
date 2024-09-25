@@ -13,8 +13,10 @@ from weaviate.util import generate_uuid5,get_valid_uuid
 from pyparsing import ZeroOrMore, FollowedBy, Suppress, delimitedList, nestedExpr,Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc,Optional, oneOf,OneOrMore
 from rich.table import Table
 
-from full_metal_monad import __
 from full_metal_weaviate.utils import StopProcessingException
+
+if not __IPYTHON__:
+    from full_metal_monad import __
 
 console = Console()
 
@@ -49,33 +51,10 @@ def metal_load(self,to_load,dry_run=True):
             console.print('\n----------[bold blue] Exception Raised Triggered Metal Rollback[/] --------------\n')
             rollback_transactions(objs,refs)
 
-def rollback_transactions(col,objs,refs):
-    if objs:
-        uuids=__(objs).get(['uuid'])
-        col.data.delete_many(where=Filter.by_id().contains_any(uuids))
-        console.print(f'[magenta]Deleting {len(uuids)} object(s)')
-
-    if refs:
-        grouped_ref = defaultdict(list)
-        for item in refs:
-            grouped_ref[item.get("clt_name")].append(item.get("ref"))
-        for clt_name,ref in grouped_ref:
-            clt=col.metal.original_client().get_metal_collection(clt_name)
-            delete_many_refs(clt,ref)
-        console.print(f'[magenta]Deleting {len(refs)} reference(s)')
-        
-def delete_many_refs(clt, refs):
-    # try:
-    for i in refs:
-        clt.data.reference_delete(from_uuid=i['from_uuid'],from_property=i['from_property'],to=i['to'])
-    # except Exception as e:
-    #     print(e)
-
 def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,return_raw=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
     try:
         w_filter=get_translate_filter(self,filters_str,context)
         ret_prop,ret_ref,ret_meta,include_vector=get_weaviate_return_fields(self.metal.compiler_return_f,return_fields)
-
         if query_vector != None:
             res = self.query.near_vector(
                 near_vector=query_vector,
@@ -106,6 +85,34 @@ def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,re
         console.print(str(e))
         # raise
         # console.print_exception(show_locals=True)
+
+def rollback_transactions(col,objs,refs):
+    if objs:
+        uuids=__(objs).get(['uuid'])
+        col.data.delete_many(where=Filter.by_id().contains_any(uuids))
+        console.print(f'[magenta]Deleting {len(uuids)} object(s)')
+
+    if refs:
+        grouped_ref = defaultdict(list)
+        for item in refs:
+            grouped_ref[item.get("clt_name")].append(item.get("ref"))
+        for clt_name,ref in grouped_ref:
+            clt=col.metal.original_client().get_metal_collection(clt_name)
+            delete_many_refs(clt,ref)
+        console.print(f'[magenta]Deleting {len(refs)} reference(s)')
+        
+def delete_many_refs(clt, refs):
+    # try:
+    for i in refs:
+        clt.data.reference_delete(from_uuid=i['from_uuid'],from_property=i['from_property'],to=i['to'])
+    # except Exception as e:
+    #     print(e)
+
+def delete_opposite_refs(target_uuid, relationship, dry_run=True):
+    res=node_col.q(target_uuid, f'name,{relationship}:*')
+    
+
+
 
 def check_format(col,to_load):
     if isinstance(to_load, dict):
@@ -220,7 +227,6 @@ def resolve_ref_uuid_and_metal_load(col,ready_objs):
     if len(to_load_opp_refs) > 0:
         group_opp_ref_and_load_ref(col,to_load_opp_refs)
     return uuids
-
 
 def resolve_refs(col,obj,refs,buffered_query={}):
     obj_copy = copy.deepcopy(obj)
@@ -404,7 +410,10 @@ def get_translate_filter(col,filters_str=None,context={}):
         operations=[{'field': 'uuid', 'operator': '=', 'value': filters_str}]
         # operations=[['uuid', '=', filters_str]]
     else:
-        operations=col.metal.compiler.parseString(filters_str,parse_all=True)
+        try:
+            operations=col.metal.compiler.parseString(filters_str,parse_all=True)
+        except Exception as e:
+            raise e
     w_filter=get_composed_weaviate_filter(col,operations[0],context)
     return w_filter
 
@@ -455,7 +464,6 @@ def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
                     target_fields=__(col.metal.context).get(f'fields.{target_clt}')
                     fields = target_fields['properties']+target_fields['references']
                     assert v in fields, f'{v} not in available reference fields {fields}'
-            
 
         refs,prop=prop_split[:-1], prop_split[-1]
         for i in refs:
@@ -495,122 +503,14 @@ def is_uuid_valid(uuid,bool_ouput=False):
     except TypeError:
         return False
 
-def get_return_field_compiler():
-    identifier = Regex("[_A-Za-z][_0-9A-Za-z]{0,230}(\\.[_A-Za-z][_0-9A-Za-z]{0,230})*")
-    properties = delimitedList(Combine(identifier + ~FollowedBy(Suppress(":"))), combine= True)
-    field = Combine(identifier + Optional(':' + properties))
-    nested_expr = Forward()
-    def g(t):
-        if len(t.asList()) > 0:
-            return {'nested': t.asList()}
-    nested_structure = Group(field + ZeroOrMore(Suppress('>') + nested_expr).setParseAction(g))
-
-    def f(t): 
-        return {'and': t[0].asList()}
-
-    nested_expr <<= nested_structure | nestedExpr(content=delimitedList(nested_expr)).setParseAction(f)
-    query_expr = delimitedList(nested_expr, delim=',')
-    return query_expr
-
-# def get_weaviate_return_fields(compiler, return_str):
-#     if return_str == None: return [],[],[],[]
-#     ret_prop,ret_ref,ret_meta,inc_vec=[],[],[],[]
-#     items=compiler.parseString(return_str, parseAll=True).asList()
-#     has_and=bool(re.compile(r"\{'and':").search(str(items)))
-#     if has_and:
-#         items=distribute_and(items)
-#         items=[compiler.parseString(i, parseAll=True).asList() for i in items]
-#         items=[i[0] for i in items]
-
-#     for comma_sep_item in items:
-#         t_ret_prop,t_ret_ref,t_ret_meta,t_inc_vec=w_return_recurse(comma_sep_item, [], [], [], False)
-#         if t_ret_prop: ret_prop.append(t_ret_prop)
-#         if t_ret_ref: ret_ref.append(t_ret_ref[0])
-#         if t_ret_meta: ret_meta.append(t_ret_meta)
-#         if t_inc_vec: inc_vec.append(t_inc_vec)   
-#     return ret_prop,ret_ref,ret_meta,inc_vec
-
-# def w_return_recurse(items, ret_prop, ret_ref, ret_meta, inc_vec,props=None,refs=None):
-#     print('items: ', items)
-#     item=items[0]
-#     next_items=None
-#     if isinstance(item, str):
-#         if item.startswith('vector:'):
-#             inc_vec=item.split(':')[1].split(',')
-#         elif item.startswith('metadata:'):
-#             meta_bool={i:True for i in item.split(':')[1].split(',')}
-#             ret_meta = MetadataQuery(**meta_bool)
-#         elif item == 'vector':
-#             inc_vec = True
-#         elif ':' in item or (refs is not None and item in refs):
-#             ret_ref.append(atomic_return_ref(item))
-#         elif props == None or (item in props):
-#             ret_prop = item
-#         next_items=items[1:] if len(items)>1 else []
-#     elif isinstance(item, dict):
-#         if 'nested' in item:
-#             if isinstance(item['nested'][0], list):
-#                 nested_str=item['nested'][0][0]
-#                 new_ref=atomic_return_ref(nested_str)
-#                 for i in ret_ref:
-#                     set_last_level_nesting(i,new_ref)
-#                 next_items=[item['nested'][0][1]] if len(item['nested'][0]) > 1 else None
-#             else:
-#                 next_items=item['nested']
-
-#     if next_items:
-#         ret_prop,ret_ref,ret_meta,inc_vec=w_return_recurse(next_items, ret_prop, ret_ref, ret_meta, inc_vec)
-#     return ret_prop,ret_ref,ret_meta,inc_vec
-
-
-# def atomic_item(item,props,refs):
-#     if item.startswith('vector'):
-#         if item.startswith('vector:'):
-#             inc_vec=item.split(':')[1].split(',')
-#         else:
-#             inc_vec = True
-#     elif item.startswith('metadata:'):
-#         meta_bool={i:True for i in item.split(':')[1].split(',')}
-#         ret_meta = MetadataQuery(**meta_bool)
-#     elif ':' in item or (refs is not None and item in refs):
-#         ret_ref.append(atomic_return_ref(item))
-#     elif props == None or (item in props):
-#         ret_prop = item
-#     return ret_prop, ret_ref
-
-
-# def set_last_level_nesting(query_ref, new_ref):
-#     if query_ref.return_properties == '$$$metal_temp_ref$$$':
-#         query_ref.return_properties = None
-#     if query_ref.return_references != None:
-#         set_last_level_nesting(query_ref.return_references,new_ref)
-#     else:
-#         query_ref.return_references = new_ref
-
-# def distribute_and(array, prefix=''):
-#     result = []
-#     for item in array:
-#         if isinstance(item, list) and len(item) == 2:
-#             key, value = item
-#             if isinstance(value, dict) and 'nested' in value:
-#                 new_prefix = f"{prefix}{key}>"
-#                 result.extend(distribute_and(value['nested'], new_prefix))
-#             elif isinstance(value, list):
-#                 new_prefix = f"{prefix}{key}>"
-#                 result.extend(distribute_and(value, new_prefix))
-#         elif isinstance(item, list) and len(item) == 1:
-#             new_prefix = f"{prefix}{item[0]}"
-#             result.append(new_prefix.strip('>'))
-#         elif isinstance(item, dict) and 'and' in item:
-#             result.extend(distribute_and(item['and'], prefix))
-#     return result
-
 def atomic_return_ref(field_value):
     try:
         if '.' in field_value:
             levels=field_value.split('.')
             field,values= levels[-1].split(':')
             values=values.split(',')
+            if len(values) == 1 and values[0] == '*':
+                values = None
             res=QueryReference(link_on=field,return_properties=values) 
             levels=levels[:-1]
             levels.reverse()
@@ -620,6 +520,8 @@ def atomic_return_ref(field_value):
         else:
             field,values=field_value.split(':')
             values=values.split(',')
+            if len(values) == 1 and values[0] == '*':
+                values = None
             return QueryReference(link_on=field, return_properties=values)
     except ValueError:
         return QueryReference(link_on=field_value, return_properties='$$$metal_temp_ref$$$')
@@ -690,17 +592,19 @@ def recurse(parsed_data, res=None):
     return res
 
 
-def get_weaviate_return_fields(compiler, return_fields):
-    parsed_data=compiler.parseString(return_fields, parseAll=True).asList()
+def get_weaviate_return_fields(compiler_r, return_fields):
+    if not return_fields: return None,None,None,False
+    parsed_data=compiler_r.parseString(return_fields, parseAll=True).asList()
     props=[i['property'] for i in parsed_data if 'property' in i] 
     parsed_data=[i for i in parsed_data if 'property' not in i]
     refs=recurse(parsed_data)
-    return props, refs
+    return props, refs, None,False
 
-def get_return_compiler():
+def get_return_field_compiler():
     basic_prop=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
     property = Combine(basic_prop + ~FollowedBy(oneOf("> :")))
-    value = Regex("\\s*[_A-Za-z][_0-9A-Za-z]{0,230}(\\.[_A-Za-z][_0-9A-Za-z]{0,230})*\\s*")
+    value = Regex("\\s*[_A-Za-z][_0-9A-Za-z]{0,230}|[*](\\.[_A-Za-z][_0-9A-Za-z]{0,230})*\\s*")
+    # value = Regex("\\s*[_A-Za-z][_0-9A-Za-z]{0,230}(\\.[_A-Za-z][_0-9A-Za-z]{0,230})*\\s*")
     values = delimitedList(Combine(value + ~FollowedBy(oneOf(":"))), combine= True)
     property.setParseAction(lambda t: {'property': t[0]})
     nested_expr = Forward()
@@ -715,7 +619,7 @@ def get_return_compiler():
 
     expression = delimitedList(nested|reference|property)
     nested_expr <<= expression
-    nested_expr.parseString('hasChildren.hasChildren:name', parseAll=True).asList()
+    # nested_expr.parseString('hasChildren.hasChildren:name', parseAll=True).asList()
     return nested_expr
 
 OPERATORS = {

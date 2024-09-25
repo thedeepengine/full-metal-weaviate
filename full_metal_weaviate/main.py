@@ -24,10 +24,11 @@ from rich.theme import Theme
 from weaviate import WeaviateClient
 from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
-from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_compiler, get_return_field_compiler
-from full_metal_monad import __, safe_jmes_search
 
-from full_metal_weaviate.utils import StopProcessingException
+if not __IPYTHON__:
+    from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_compiler, get_return_field_compiler
+    from full_metal_monad import __, safe_jmes_search
+    from full_metal_weaviate.utils import StopProcessingException
 
 custom_theme = Theme({
     "info": "dim cyan",
