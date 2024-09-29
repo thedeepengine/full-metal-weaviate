@@ -108,13 +108,19 @@ class MetalCollectionContext:
         self.name=clt_name
         self.original_client=weakref.ref(client_weaviate)
         self.context=set_weaviate_context(client_weaviate)
-        self.props=safe_jmes_search(f'fields.{clt_name}.properties', self.context).unwrap()
-        self.refs=safe_jmes_search(f'fields.{clt_name}.references', self.context).unwrap()
+        self.props=__(self.context).get(f'fields.{clt_name}.properties').__
+        self.refs=__(self.context).get(f'fields.{clt_name}.references').__
         self.compiler=get_compiler(self.props+self.refs+['uuid'])
         self.compiler_return_f=get_return_field_compiler()
         self.get_opposite=MethodType(get_opposite, self)
         self.register_opposite_ref=MethodType(register_opposite_ref, self)
-  
+        self.get_opp_clt=MethodType(get_opp_clt, self)
+
+def get_opp_clt(self,ref):
+    opposite_clt_name=self.context['ref_target'][self.name][ref]['target_clt']
+    opposite_clt=self.original_client().get_metal_collection(opposite_clt_name)
+    return opposite_clt
+
 def set_weaviate_context(client_weaviate):
     all_schema = client_weaviate.collections.list_all(simple=False)
     fields={k: {'properties': [i.name for i in v.properties], 'references': [i.name for i in v.references]} for k,v in all_schema.items()}
@@ -158,11 +164,10 @@ def register_opposite(client,opposite_refs):
     buffer_clt = {}
     formatted_opposite=[extract_opposite_refs(i) for i in opposite_refs]
     for ref in formatted_opposite:
-        clt_source,rel_source,clt_target,rel_target=ref['clt_source'],ref['rel_source'],ref['clt_target'],ref['rel_target']
-        for clt_name in [clt_source,clt_target]:
+        for clt_name in [ref['clt_source'],ref['clt_target']]:
             if clt_name not in buffer_clt:
                 buffer_clt[clt_name]=client.get_metal_collection(clt_name) 
-        buffer_clt[clt_source].metal.register_opposite_ref(rel_source,rel_target)
+        buffer_clt[ref['clt_source']].metal.register_opposite_ref(ref['rel_source'],ref['rel_target'])
 
 def get_weaviate_client(weaviate_client_url):
     global weaviate_client, client

@@ -1,21 +1,132 @@
 import os
 import unittest
-from weaviate import WeaviateClient
-from weaviate.connect import ConnectionParams
-from weaviate.auth import AuthApiKey
 import weaviate.classes as wvc
 from weaviate.classes.config import Property, DataType, ReferenceProperty, Configure, Tokenization
 # from main import get_metal_client, get_weaviate_client
 
-from full_metal_weaviate.main import get_metal_client,get_weaviate_client
+# from full_metal_weaviate.main import get_metal_client,get_weaviate_client
 
 global weaviate_client, client
 
 client_weaviate=get_weaviate_client('localhost')
-client_weaviate=get_metal_client(client_weaviate)
+opposite_refs = ['NodeTest.childrenOf<>NodeTest.hasChildren','NodeTest.instanceOf<>NodeTest.hasInstance', 
+                 'NodeTest.ontologyOf<>NodeTest.hasOntology', 'NodeTest.hasAttr<>NodeTest.attrOf']
+client_weaviate=get_metal_client(client_weaviate, opposite_refs)
 
 node_col=client_weaviate.get_metal_collection('NodeTest')
+col=node_col
+self=node_col
 node_col.q()
+
+node_col.metal.get_opp_clt('hasChildren')
+
+self = node_col
+
+#########################################
+##### test metal_load ###################
+#########################################
+
+children1_uuid = generate_uuid5('children1')
+children2_uuid = generate_uuid5('children2')
+
+uuid1=str(node_col.l({'fname': 'test__0001'}, False)[0])
+uuid2=str(node_col.l({'fname': 'test__0002'}, False)[0])
+uuid3=str(node_col.l({'fname': 'test__0003'}, False)[0])
+uuid4=str(node_col.l({'fname': 'test__0004'}, False)[0])
+uuid5=str(node_col.l({'fname': 'test__0005'}, False)[0])
+uuid6=str(node_col.l({'fname': 'test__0006'}, False)[0])
+uuid7=str(node_col.l({'fname': 'test__0007'}, False)[0])
+
+
+uuid5 = str(uuid5)
+
+# node_col.q(uuid4[0])
+
+
+# single prop
+t = [[{'fname': 'name test'}],
+    [{'fname': 'name test', 'value': 3}],
+    [{'fname': 'name test', 'hasChildren': 'fname=test__0001'}],
+    [{'hasChildren': 'fname=test__0001'}],
+    [{'<>hasChildren': 'fname=test__0001'}],
+    [{'fname': 'name test', 'vector': {'content': [0]*384}}],
+    [{'from_uuid': uuid1, 'from_property': 'hasChildren', 'to': uuid2}],
+    [{'from_uuid': uuid3, 'from_property': '<>hasChildren', 'to': uuid4}],
+    [[uuid4, 'hasChildren',  uuid5],[uuid4, '<>hasAttr',  uuid5]],
+    [{'fname': 'name test', 'hasChildren': uuid6}],
+    [{'fname': 'name test', 'value': 3, '<>hasChildren': uuid1}],
+    [{'uuid': uuid6, 'name': 'updated name'}]
+    ]
+
+i = [{'from_uuid': uuid1, 'from_property': 'hasChildren', 'to': uuid2}]
+res=[]
+for i in t:
+   print(i)
+   r=metal_load(col, i, False)
+   print(r, '\n')
+   res.append(r)
+
+to_load = [{'uuid': uuid6, 'name': 'updated name'}]
+
+
+node_col.q(uuid1, 'hasChildren:fname,childrenOf:fname')
+node_col.l({'hasChildren': '3b945d87-29eb-488c-8ed3-678e92f1bce4'}, False)
+
+node_col.l({'from_uuid': '2b869d86-723e-482c-b031-9052a6072a59',
+            'from_property': 'hasChildren',
+            'to': '3b945d87-29eb-488c-8ed3-678e92f1bce4'})
+
+to_load = {'from_uuid': '2b869d86-723e-482c-b031-9052a6072a59',
+            'from_property': 'hasChildren',
+            'to': uuid4}
+
+
+to_load = [{'uuid': uuid6, 'name': 'updated name333333'}]
+metal_load(node_col, to_load, dry_run=False)
+node_col.q('da208f95-c55d-4be1-ad8b-0ea19c0927a3', 'name')
+
+to_load = [{'name': 'name test'}]
+a=node_col.l(to_load, False)
+
+
+node_col.q(uuid3, 'hasChildren:fname')
+node_col.q(uuid4, 'childrenOf:fname')
+
+node_col.q(uuid4, 'hasChildren:fname')
+node_col.q(uuid4, 'hasAttr:fname')
+node_col.q(uuid5, 'attrOf:fname')
+
+
+node_col.q(r[0], 'hasChildren:fname')
+node_col.q(uuid1, 'childrenOf:name')
+
+
+# multiple props
+# mix prop and refs
+# mix prop and unresolved refs
+# simple ref
+# 2 way ref
+# prop with vector / named vector
+# pure ref one way dict
+# pure ref two way dict
+# pure ref array
+# mix prop and resolved refs
+# mix prop and resolved 2 way refs
+# already existing ref
+
+node_col.q('name=home')
+to_load = [{'name': 'name test', 'value': 3, '<>hasChildren': }]
+
+to_load={'name': 'test0000'}
+uuid=node_col.l(to_load)
+
+
+node_col.q('990058ea-b66e-4e1d-8f67-0f282591794d', 'childrenOf:name')
+
+
+to_load = [{'name': 'name test', 'value': 3, '<>hasChildren': '990058ea-b66e-4e1d-8f67-0f282591794d'}]
+
+clt_name, refs = list( grouped.items())[0]
 
 def get_test_clt():
     opposite_refs = ['JeopardyQuestion.hasCategory<>JeopardyCategory.hasQuestion',
@@ -238,7 +349,6 @@ for i in t:
     res.append(temp)
 
 res[10]
-
 
 
 from pyparsing import Regex, Combine, ZeroOrMore, Forward, Group, Suppress, delimitedList, FollowedBy, Optional, NotAny
@@ -655,13 +765,11 @@ print(result)  # Output: ['5', '+', '3']
 
 
 
-
-
-
-
 #########################################
 ##### test metal_load ###################
 #########################################
+
+
 
 JeopardyQuestion,JeopardyCategory=get_test_clt()
 
