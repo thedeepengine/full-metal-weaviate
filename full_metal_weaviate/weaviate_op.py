@@ -18,9 +18,18 @@ from full_metal_weaviate.utils import StopProcessingException
 if not __IPYTHON__:
     from full_metal_monad import __
 
-console = Console()
+custom_theme = Theme({
+    "info": "dim cyan",
+    "warning": "magenta",
+    "error": "bold red"
+})
+
+console = Console(theme=custom_theme)
 
 def metal_load(self,to_load,dry_run=True):
+    if len(to_load) == 0: 
+        console.print('[info]Empty to_load parameter')
+        return None
     if isinstance(to_load, dict):
         to_load = [to_load]
         
@@ -37,8 +46,11 @@ def metal_load(self,to_load,dry_run=True):
             dry_run_ref=load_pure_ref(self,resolved,opp_refs,dry_run)
             res={'dry_run_ref': dry_run_ref} if dry_run else None
         elif load_type == 'mix':
-            uuids,pure_obj,pure_ref=load_mix(self,resolved,opp_refs,temp_uuids,dry_run)
-            if dry_run: res={'uuids': uuids,'pure_obj': pure_obj,'pure_ref': pure_ref}
+            uuids,pure_obj_create,pure_obj_update,pure_ref=load_mix(self,resolved,opp_refs,temp_uuids,dry_run)
+            if dry_run: res={'uuids': uuids,
+                             'pure_obj_create': pure_obj_create,
+                             'pure_obj_update': pure_obj_update,
+                             'pure_ref': pure_ref}
             else: res=uuids
         if dry_run:
             console.print('\n[magenta blue]Dry Run Mode, set dry_run=False to load[/]\n')
@@ -73,19 +85,21 @@ def mix_resolver(col,to_load):
     opp_refs=[]
     temp_uuids=[]
     
-    for i,obj in enumerate(resolved):
+    for obj in resolved:
         keys = list(obj)
         temp_uuid=generate_uuid5(str(obj)+str(random.random()))
         temp_uuids.append(temp_uuid)
-        for field in keys: 
+        for field in keys:
             is_ref,c_field,is_2_way=field_meta(col, field)
             if not is_ref:
                 resolved.append
             if is_ref:
                 opp_clt=col.metal.get_opp_clt(c_field)
-                if not is_uuid_valid(obj[field]):
-                    uuid=search_unique_ref_uuid(opp_clt,obj[field])
-                    obj[field]=uuid
+                listified = obj[field] if isinstance(obj[field], list) else [obj[field]]
+                for i in listified:
+                    if not is_uuid_valid(i):
+                        uuid=search_unique_ref_uuid(opp_clt,obj[field])
+                        obj[field]=uuid
                 if is_2_way:
                     opp_field=col.metal.get_opposite(c_field)
                     opp_refs.append({opp_clt.name:[obj[field], opp_field, temp_uuid]})
@@ -130,19 +144,28 @@ def load_pure_ref(col, resolved, opp_refs, dry_run=True):
     return dry_run_output
 
 def load_mix(col,resolved,opp_refs,temp_uuids,dry_run=True):
-    pure_obj=__(resolved).apply(
+    to_update = [i for i in resolved if 'uuid' in i]
+    to_create = [i for i in resolved if not 'uuid' in i]
+
+    pure_obj_update=__(to_update).apply(
         lambda x: ({'uuid':__(x).get('uuid').__,
                     'prop':__(x).get(col.metal.props).__,
                     'ref': __(x).get(col.metal.refs).__,
                     'vector': __(x).get('vector').__}))
     
-    uuids=batch_load_object(col,pure_obj,dry_run)
-    uuid_map=dict(zip(temp_uuids, uuids))
+    pure_obj_create=__(to_create).apply(
+        lambda x: ({'prop':__(x).get(col.metal.props).__,
+                    'ref': __(x).get(col.metal.refs).__,
+                    'vector': __(x).get('vector').__}))
+    
+    uuids_created=batch_load_object(col,pure_obj_create,dry_run)
+    uuids_updated=batch_update_object(col,pure_obj_update,dry_run)
+    uuid_map=dict(zip(temp_uuids, uuids_created+uuids_updated))
     for i in opp_refs:
         k=list(i.keys())[0]
         i[k][2]=uuid_map[i[k][2]]
     pure_ref=load_pure_ref(col,[],opp_refs,dry_run)
-    return uuids,pure_obj,pure_ref
+    return uuids_created+uuids_updated,pure_obj_create,pure_obj_update,pure_ref
 
 
 
@@ -280,26 +303,30 @@ def batch_load_object(clt,objs,dry_run=False):
     for obj in objs:
         if all(obj.get(key) is None for key in ['prop', 'ref','vector']):
             raise Exception('all keys are None for batch load object')
-
-    to_update=[i for i in objs if len(i['uuid']) > 0]
-    to_create=[i for i in objs if len(i['uuid']) == 0]
-
+    
     if dry_run:
-        console.print('to_update', len(to_update))
-        console.print('to_create', len(to_create))
+        console.print('to_create', len(objs))
         return [generate_uuid5(random.random()) for _ in range(len(objs))]
     
-    for obj in to_update:
-        clt.data.update(uuid=obj.get('uuid'),
-                        properties=obj.get('prop'),references=obj.get('ref'),vector=obj.get('vector'))
-        uuids.append(obj.get('uuid'))
-
-    if len(to_create)> 0:
-        with clt.batch.dynamic() as batch:
+    with clt.batch.dynamic() as batch:
+        for obj in objs:
             temp_uuid=batch.add_object(properties=obj.get('prop'),references=obj.get('ref'),vector=obj.get('vector'))
             clt.metal.original_client().metal.append_transaction(clt.name,temp_uuid,'object')
             uuids.append(temp_uuid)
-        show_batch_error(clt,batch)
+    show_batch_error(clt,batch)
+    return uuids
+
+def batch_update_object(clt,to_update,dry_run):
+    uuids = []
+    if dry_run:
+        console.print('to_update', len(to_update))
+    for obj in to_update:
+        fields = {'uuid': 'uuid', 'prop': 'properties', 'ref': 'references', 'vector': 'vector'}
+        params = {value: obj.get(key) for key, value in fields.items() if obj.get(key) is not None}
+
+        if params:
+            clt.data.update(**params)
+        uuids.append(obj.get('uuid'))
     return uuids
 
 def batch_load_references(clt, refs):

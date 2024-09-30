@@ -48,6 +48,7 @@ t = [[{'fname': 'name test'}],
     [{'fname': 'name test', 'value': 3}],
     [{'fname': 'name test', 'hasChildren': 'fname=test__0001'}],
     [{'hasChildren': 'fname=test__0001'}],
+    [{'hasChildren': [uuid5,uuid6,uuid7]}],
     [{'<>hasChildren': 'fname=test__0001'}],
     [{'fname': 'name test', 'vector': {'content': [0]*384}}],
     [{'from_uuid': uuid1, 'from_property': 'hasChildren', 'to': uuid2}],
@@ -55,7 +56,8 @@ t = [[{'fname': 'name test'}],
     [[uuid4, 'hasChildren',  uuid5],[uuid4, '<>hasAttr',  uuid5]],
     [{'fname': 'name test', 'hasChildren': uuid6}],
     [{'fname': 'name test', 'value': 3, '<>hasChildren': uuid1}],
-    [{'uuid': uuid6, 'name': 'updated name'}]
+    [{'uuid': uuid6, 'name': 'updated name'}],
+    [{'uuid':uuid3,'hasChildren': [uuid5,uuid6,uuid7]}], # update multiples refs
     ]
 
 i = [{'from_uuid': uuid1, 'from_property': 'hasChildren', 'to': uuid2}]
@@ -66,20 +68,43 @@ for i in t:
    print(r, '\n')
    res.append(r)
 
-to_load = [{'uuid': uuid6, 'name': 'updated name'}]
+to_load = [{'fname': 'name test', 'hasChildren': 'fname=test__0001'}]
+
+node_col.l(to_load)
+
+node_col.q('fname ~ test__000*')
+
+to_load = [{'fname': 'test_00000'}]
+a=node_col.l(to_load)
+
+node_col.data.update(
+    uuid=uuid2,
+    references={'hasChildren': uuid1}
+)
+
+metal_query(col, f'{uuid2}', 'hasChildren:fname')
 
 
-node_col.q(uuid1, 'hasChildren:fname,childrenOf:fname')
-node_col.l({'hasChildren': '3b945d87-29eb-488c-8ed3-678e92f1bce4'}, False)
+to_load = [{'uuid': uuid2, 'hasChildren': [uuid6]}]
 
-node_col.l({'from_uuid': '2b869d86-723e-482c-b031-9052a6072a59',
-            'from_property': 'hasChildren',
-            'to': '3b945d87-29eb-488c-8ed3-678e92f1bce4'})
+metal_load(col,to_load, False)
+metal_query(col, f'{uuid2}', 'hasChildren:fname')
 
-to_load = {'from_uuid': '2b869d86-723e-482c-b031-9052a6072a59',
-            'from_property': 'hasChildren',
-            'to': uuid4}
+node_col.data.insert(
+    properties={'fname': 'test_llllllll'},  
+    references={'hasChildren': [uuid1, uuid2]}
+)
 
+
+
+node_col.q('b94d4215-74c9-4dc5-bb21-f6ea6396e7a1', 'hasChildren:fname')
+    references={"hasCategory": category_uuid},  # e.g. {"hasCategory": "583876f3-e293-5b5b-9839-03f455f14575"}
+
+
+
+{'hasChildren': ['854d7c4e-c207-4946-8f02-cfe389acf9be',
+   'da208f95-c55d-4be1-ad8b-0ea19c0927a3',
+   '49a8c079-bf2e-4272-9889-144cf09b106f']}
 
 to_load = [{'uuid': uuid6, 'name': 'updated name333333'}]
 metal_load(node_col, to_load, dry_run=False)
