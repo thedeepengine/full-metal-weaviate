@@ -24,8 +24,9 @@ from rich.theme import Theme
 from weaviate import WeaviateClient
 from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
+from full_metal_weaviate.utils import run_from_ipython
 
-if not __IPYTHON__:
+if not run_from_ipython():
     from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_compiler, get_return_field_compiler
     from full_metal_monad import __, safe_jmes_search
     from full_metal_weaviate.utils import StopProcessingException

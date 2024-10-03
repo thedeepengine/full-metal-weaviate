@@ -9,9 +9,9 @@ allRelations = list(set(list(reversedRelation.keys()) + list(reversedRelation.va
 def grapql_to_d3hierarchy_format(hierarchy):
     hierarchy.update({**hierarchy.pop('properties',{}), **hierarchy.pop('references', {})})
     keys=list(set(hierarchy.keys()) & set(allRelations))
-    sub_level = __(hierarchy).get(keys).values()
-    hierarchy = __(hierarchy).remove(keys)
-    hierarchy['children'] = [grapql_to_d3hierarchy_format(child) for child in list(itertools.chain(*sub_level))]
+    sub_level = __(hierarchy).get(keys).__
+    __(hierarchy).inplace.remove(keys).__
+    hierarchy['children'] = [grapql_to_d3hierarchy_format(child) for key in keys for child in sub_level[key]]
     return hierarchy
 
 def getUuid(someDict):
@@ -38,8 +38,3 @@ def trimDictD3Hierarchy(nested_dict, withVector):
 
 def sort_by_weight(array):
     return sorted(array, key=lambda x: x.get('weight', 0))
-
-
-
-def f():
-    print('ddddd')

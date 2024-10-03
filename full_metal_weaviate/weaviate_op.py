@@ -7,15 +7,16 @@ import random
 from collections import defaultdict
 from rich.console import Console
 from rich.traceback import install
+from rich.theme import Theme
+from rich.table import Table
 from weaviate.classes.query import MetadataQuery, Filter, QueryReference
 from weaviate.exceptions import WeaviateBaseError
 from weaviate.util import generate_uuid5,get_valid_uuid
 from pyparsing import ZeroOrMore, FollowedBy, Suppress, delimitedList, nestedExpr,Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc,Optional, oneOf,OneOrMore
-from rich.table import Table
 
-from full_metal_weaviate.utils import StopProcessingException
+from full_metal_weaviate.utils import StopProcessingException, run_from_ipython
 
-if not __IPYTHON__:
+if not run_from_ipython():
     from full_metal_monad import __
 
 custom_theme = Theme({
@@ -322,7 +323,9 @@ def batch_update_object(clt,to_update,dry_run):
         console.print('to_update', len(to_update))
     for obj in to_update:
         fields = {'uuid': 'uuid', 'prop': 'properties', 'ref': 'references', 'vector': 'vector'}
-        params = {value: obj.get(key) for key, value in fields.items() if obj.get(key) is not None}
+        params = {value: obj.get(key) 
+                  for key, value in fields.items() 
+                  if obj.get(key) is not None and len(obj.get(key))>0}
 
         if params:
             clt.data.update(**params)
