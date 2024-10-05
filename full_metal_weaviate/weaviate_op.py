@@ -14,10 +14,11 @@ from weaviate.exceptions import WeaviateBaseError
 from weaviate.util import generate_uuid5,get_valid_uuid
 from pyparsing import ZeroOrMore, FollowedBy, Suppress, delimitedList, nestedExpr,Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc,Optional, oneOf,OneOrMore
 
-from full_metal_weaviate.utils import StopProcessingException, run_from_ipython
+# from full_metal_weaviate.utils import run_from_ipython
 
 if not run_from_ipython():
     from full_metal_monad import __
+    from full_metal_weaviate.utils import StopProcessingException
 
 custom_theme = Theme({
     "info": "dim cyan",
@@ -44,18 +45,13 @@ def metal_load(self,to_load,dry_run=True):
             resolved,opp_refs,temp_uuids=mix_resolver(self,to_load)
 
         if load_type == 'ref':
-            dry_run_ref=load_pure_ref(self,resolved,opp_refs,dry_run)
-            res={'dry_run_ref': dry_run_ref} if dry_run else None
+            load_pure_ref(self,resolved,opp_refs,dry_run)
         elif load_type == 'mix':
             uuids,pure_obj_create,pure_obj_update,pure_ref=load_mix(self,resolved,opp_refs,temp_uuids,dry_run)
-            if dry_run: res={'uuids': uuids,
-                             'pure_obj_create': pure_obj_create,
-                             'pure_obj_update': pure_obj_update,
-                             'pure_ref': pure_ref}
-            else: res=uuids
+            self.metal.run={'uuids': uuids,'pure_obj_create': pure_obj_create,'pure_obj_update': pure_obj_update,'pure_ref': pure_ref}
+            res=uuids
         if dry_run:
             console.print('\n[magenta blue]Dry Run Mode, set dry_run=False to load[/]\n')
-
         return res
         
     except Exception as e:
@@ -127,7 +123,7 @@ def pure_ref_resolver(col, to_load):
     return resolved,opp_refs
 
 def load_pure_ref(col, resolved, opp_refs, dry_run=True):
-    buffer_clt={};dry_run_output=[]
+    buffer_clt={}
     grouped={col.name: resolved}
     for d in opp_refs:
         for key, value in d.items():
@@ -138,11 +134,7 @@ def load_pure_ref(col, resolved, opp_refs, dry_run=True):
             clt_obj=col.metal.original_client().get_metal_collection(clt_name)
         buffer_clt[clt_name]=clt_obj
         from_clt=buffer_clt.get(clt_name, clt_obj)
-        if dry_run:
-            dry_run_output.append(refs)
-        else:
-            batch_load_references(from_clt,refs)
-    return dry_run_output
+        batch_load_references(from_clt,refs,dry_run)
 
 def load_mix(col,resolved,opp_refs,temp_uuids,dry_run=True):
     to_update = [i for i in resolved if 'uuid' in i]
@@ -297,7 +289,7 @@ def check_naming(keys,prop_names,ref_names):
     if is_prop:
         return 'prop'
 
-def batch_load_object(clt,objs,dry_run=False):
+def batch_load_object(clt,objs,dry_run=True):
     uuids = []
     if isinstance(objs, dict):
         objs=[objs]
@@ -321,25 +313,33 @@ def batch_update_object(clt,to_update,dry_run):
     uuids = []
     if dry_run:
         console.print('to_update', len(to_update))
-    for obj in to_update:
-        fields = {'uuid': 'uuid', 'prop': 'properties', 'ref': 'references', 'vector': 'vector'}
-        params = {value: obj.get(key) 
-                  for key, value in fields.items() 
-                  if obj.get(key) is not None and len(obj.get(key))>0}
+        if not hasattr(clt.metal, 'run'):
+            clt.metal.run = {}
+        clt.metal.run['to_udpate'] = [i.get('uuid') for i in to_update]
+    else:
+        for obj in to_update:
+            fields = {'uuid': 'uuid', 'prop': 'properties', 'ref': 'references', 'vector': 'vector'}
+            params = {value: obj.get(key) 
+                    for key, value in fields.items() 
+                    if obj.get(key) is not None and len(obj.get(key))>0}
 
-        if params:
-            clt.data.update(**params)
-        uuids.append(obj.get('uuid'))
+            if params:
+                clt.data.update(**params)
+            uuids.append(obj.get('uuid'))
     return uuids
 
-def batch_load_references(clt, refs):
+def batch_load_references(clt, refs, dry_run=True):
     if isinstance(refs, dict):
         refs=[refs]
-    with clt.batch.dynamic() as batch:
-        for ref in refs:
-            batch.add_reference(from_uuid=ref[0],from_property=ref[1],to=ref[2])
-            clt.metal.original_client().metal.append_transaction(clt.name,ref,'reference')
-    show_batch_error(clt,batch)
+    if dry_run:
+        print('batch load ref: ', len(refs))
+        # clt.metal.run['']
+    else:
+        with clt.batch.dynamic() as batch:
+            for ref in refs:
+                batch.add_reference(from_uuid=ref[0],from_property=ref[1],to=ref[2])
+                clt.metal.original_client().metal.append_transaction(clt.name,ref,'reference')
+        show_batch_error(clt,batch)
     
 def show_batch_error(clt,batch):
     if batch.number_errors == 0:
@@ -504,7 +504,7 @@ def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
 
     w_filter = getattr(w_filter, OPERATORS[op_symbol])
 
-    if __(col.metal.context).get(f'types.{col.name}.{prop}') == 'NUMBER':
+    if __(col.metal.context).get(f'types.{col.name}.{prop}').__ == 'NUMBER':
         try:
             value=float(value)
         except Exception as e:
@@ -607,7 +607,8 @@ def recurse(parsed_data, res=None):
         else:
             if nested.return_references == None:
                 nested.return_references = []
-            nested.return_references+=recurse(nested2)
+            # nested.return_references+=recurse(nested2)
+            nested.return_references+=recurse([{'nested': nested2}])
             res.append(nested)
     return res
 

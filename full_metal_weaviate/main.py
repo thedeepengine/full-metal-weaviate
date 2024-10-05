@@ -24,9 +24,9 @@ from rich.theme import Theme
 from weaviate import WeaviateClient
 from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
-from full_metal_weaviate.utils import run_from_ipython
 
 if not run_from_ipython():
+    from full_metal_weaviate.utils import run_from_ipython
     from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_compiler, get_return_field_compiler
     from full_metal_monad import __, safe_jmes_search
     from full_metal_weaviate.utils import StopProcessingException
@@ -75,6 +75,7 @@ go_metal = get_metal_collection
 def init_metal_batch(self):
     self.current_transaction_object = []
     self.current_transaction_reference = []
+    self.run = {}
 
 def append_transaction(self,clt_name,data,trans_type):
     if not hasattr(self, 'current_transaction_object') or not hasattr(self, 'current_transaction_reference'):

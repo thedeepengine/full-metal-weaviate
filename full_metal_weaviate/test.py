@@ -12,11 +12,12 @@ client_weaviate=get_weaviate_client('localhost')
 opposite_refs = ['NodeTest.childrenOf<>NodeTest.hasChildren','NodeTest.instanceOf<>NodeTest.hasInstance', 
                  'NodeTest.ontologyOf<>NodeTest.hasOntology', 'NodeTest.hasAttr<>NodeTest.attrOf']
 client_weaviate=get_metal_client(client_weaviate, opposite_refs)
-
 node_col=client_weaviate.get_metal_collection('NodeTest')
 col=node_col
 self=node_col
 node_col.q()
+compiler = node_col.metal.compiler
+compiler_r = node_col.metal.compiler_return_f
 
 node_col.metal.get_opp_clt('hasChildren')
 
@@ -96,6 +97,28 @@ node_col.data.insert(
 )
 
 
+list(chain.from_iterable(map(lambda key: map(grapql_to_d3hierarchy_format, sub_level[key]), keys)))
+
+
+map(lambda key: map(grapql_to_d3hierarchy_format, sub_level[key]), keys)
+
+__(keys).map(lambda key:
+             __(sub_level[key]).map(grapql_to_d3hierarchy_format))
+
+__(keys).map(
+    lambda k: map(
+        lambda level: grapql_to_d3hierarchy_format(level[k])
+    ))
+
+__(keys).map(
+    __(sub_level).map(
+        grapql_to_d3hierarchy_format(level[keys])
+    ).flatten
+
+__(keys).map(
+    __(sub_level).map(
+        lambda x: grapql_to_d3hierarchy_format(level[keys])
+    ).flatten
 
 node_col.q('b94d4215-74c9-4dc5-bb21-f6ea6396e7a1', 'hasChildren:fname')
     references={"hasCategory": category_uuid},  # e.g. {"hasCategory": "583876f3-e293-5b5b-9839-03f455f14575"}
@@ -356,12 +379,64 @@ t=['name',
     'hasOntology>(name,hasAttrUuid.hasChildren:name,hasOntology:name>hasChildren:name)',
     'hasOntology>(name,hasAttrUuid.hasChildren:name>hasOntology:name>(hasChildren:name,hasAttr:name))',
     'name,date,hasOntology:name,hasChildren>(hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name',
-    'name,hasChildren>(name,date,hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name']
+    'name,hasChildren>(name,date,hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name',
+    'fname,hasChildren:attrName,name,fname,value,content,date>(hasAttr:name>(hasAttrUuid:name),hasChildren:name,value)']
 
+
+res=[]
 for i in t:
-    print(i)
-    print(nested_expr.parseString(i, parseAll=True).asList())
+    temp={}
+    temp['return_str']=i
+    temp['compiled']=compiler_r.parseString(i, parseAll=True).asList()
+    temp['weaviate']=get_weaviate_return_fields(compiler_r,i)
+    res.append(temp)
 
+res2=[]
+for i in t:
+    temp={}
+    temp['return_str']=i
+    temp['compiled']=compiler_r.parseString(i, parseAll=True).asList()
+    temp['weaviate']=get_weaviate_return_fields(compiler_r,i)
+    res2.append(temp)
+
+
+for i,i1,i2 in zip(range(len(res)),res,res2):
+    # print(i1['return_str'] == i2['return_str'])
+    print(i, i1['weaviate'] == i2['weaviate'])
+
+
+res[24]['return_str']
+res[24]['weaviate']
+res2[24]['weaviate']
+
+res[23]['return_str']
+res[23]['weaviate']
+res2[23]['weaviate']
+
+res.append(get_weaviate_return_fields(compiler_r,i))
+
+
+a=QueryReference(link_on='hasAttrUuid', include_vector=False, return_metadata=None, return_properties=['name'], return_references=None)
+b=QueryReference(link_on='hasAttrUui', include_vector=False, return_metadata=None, return_properties=['name'], return_references=None)
+
+a==b
+
+recurse([{'nested': nested2}])
+
+return_fields='fname,hasChildren:attrName,name,fname,value,content,date>(hasAttr:name>hasAttrUuid:name,hasChildren:name,value)'
+return_fields='fname,hasChildren:attrName,name,fname,value,content,date>(hasAttr:name>(hasAttrUuid:name),hasChildren:name,value)'
+return_fields='hasAttr:name>(hasAttrUuid:name),hasChildren:name,value'
+
+return_fields='hasAttr:name>(hasAttrUuid:name)'
+parsed_data=compiler_r.parseString(return_fields, parseAll=True).asList()
+
+_,refrr,nestedrr=merge_keys(parsed_data)
+
+ret_prop,ret_ref,ret_meta,include_vector=get_weaviate_return_fields(compiler_r,return_fields)
+
+    col.q(f'instanceOf.name={ontology_name}&fname any ids', 
+           'fname,hasChildren:attrName,name,fname,value,content,date>(hasAttr:name>(hasAttrUuid:name),hasChildren:name,value)',
+           context={'ids': ids })
 
 'hasChildren:name>hasChildren:name'
 
