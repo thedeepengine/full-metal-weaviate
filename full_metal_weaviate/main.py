@@ -25,11 +25,17 @@ from weaviate import WeaviateClient
 from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
 
-if not run_from_ipython():
-    from full_metal_weaviate.utils import run_from_ipython
-    from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_compiler, get_return_field_compiler
-    from full_metal_monad import __, safe_jmes_search
-    from full_metal_weaviate.utils import StopProcessingException
+def run_from_ipython():
+    try:
+        __IPYTHON__
+        return True
+    except NameError:
+        return False
+
+from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_compiler, get_return_field_compiler
+from full_metal_monad import __, safe_jmes_search
+from full_metal_weaviate.utils import StopProcessingException
+
 
 custom_theme = Theme({
     "info": "dim cyan",

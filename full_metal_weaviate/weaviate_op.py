@@ -16,9 +16,16 @@ from pyparsing import ZeroOrMore, FollowedBy, Suppress, delimitedList, nestedExp
 
 # from full_metal_weaviate.utils import run_from_ipython
 
-if not run_from_ipython():
-    from full_metal_monad import __
-    from full_metal_weaviate.utils import StopProcessingException
+def run_from_ipython():
+    try:
+        __IPYTHON__
+        return True
+    except NameError:
+        return False
+
+
+from full_metal_monad import __
+from full_metal_weaviate.utils import StopProcessingException
 
 custom_theme = Theme({
     "info": "dim cyan",
@@ -368,7 +375,8 @@ def show_batch_error(clt,batch):
             table.add_column("error")
 
             for error in clt.batch.failed_references[:10]:
-                table.add_row(str(error.object_.properties),error.message)
+                if hasattr(error, 'object_'):
+                    table.add_row(str(error.object_.properties),error.message)
             console.print(table)
 
 ############################################################################
@@ -611,7 +619,6 @@ def recurse(parsed_data, res=None):
             nested.return_references+=recurse([{'nested': nested2}])
             res.append(nested)
     return res
-
 
 def get_weaviate_return_fields(compiler_r, return_fields):
     if not return_fields: return None,None,None,False
