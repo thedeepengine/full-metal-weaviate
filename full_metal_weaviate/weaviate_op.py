@@ -622,18 +622,36 @@ def recurse(parsed_data, res=None):
 
 def get_weaviate_return_fields(compiler_r, return_fields):
     if not return_fields: return None,None,None,False
+    include_vector=[]
     parsed_data=compiler_r.parseString(return_fields, parseAll=True).asList()
     props=[i['property'] for i in parsed_data if 'property' in i] 
-    parsed_data=[i for i in parsed_data if 'property' not in i]
-    refs=recurse(parsed_data)
-    return props, refs, None,False
+    if 'vector' in props:
+        include_vector=True
+        props=[i for i in props if i != 'vector']
+
+    ref=[i for i in parsed_data if 'reference' in i]
+    refs_classic=[]
+    for i in parsed_data:
+        if 'reference' in i:
+            field,values=i['reference'].split(':')
+            if field == 'vector':
+                values=values.split(',')
+                include_vector+=values
+            else:
+                refs_classic.append(i)
+        else:
+            refs_classic.append(i)
+
+    refs_classic=[i for i in refs_classic if 'property' not in i]
+    refs=recurse(refs_classic)
+    if isinstance(include_vector, list) and len(include_vector) == 0: 
+        include_vector=False
+    return props, refs, None,include_vector
 
 def get_return_field_compiler():
     basic_prop=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
     property = Combine(basic_prop + ~FollowedBy(oneOf("> :")))
-    # value = Regex("\\s*[_A-Za-z][_0-9A-Za-z]{0,230}|[*](\\.[_A-Za-z][_0-9A-Za-z]{0,230})*\\s*")
     value=Regex("\\s*(\\*|[_A-Za-z][_0-9A-Za-z]{0,230}(\\.[_0-9A-Za-z]{1,230})*|[_A-Za-z][_0-9A-Za-z]{0,230})\\s*")
-    # value = Regex("\\s*[_A-Za-z][_0-9A-Za-z]{0,230}(\\.[_A-Za-z][_0-9A-Za-z]{0,230})*\\s*")
     values = delimitedList(Combine(value + ~FollowedBy(oneOf(":"))), combine= True)
     property.setParseAction(lambda t: {'property': t[0]})
     nested_expr = Forward()

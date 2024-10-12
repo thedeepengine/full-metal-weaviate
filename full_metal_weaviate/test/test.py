@@ -221,6 +221,20 @@ for i in t:
 
 
 
+compiler_r = get_return_field_compiler()
+
+return_fields = 'name,date,attr,vector'
+return_fields = 'name,date,attr,vector:content'
+return_fields = 'name,date,attr,vector:content,name'
+return_fields= 'name,date,attr,vector:content,name,hasChildren:name'
+get_weaviate_return_fields(compiler_r, return_fields)
+
+
 
 if __name__ == "__main__":
     unittest.main()
+
+node_col.query.fetch_objects(include_vector=True,limit=1)
+
+
+node_col.query.fetch_objects(include_vector=['content'],limit=1)
