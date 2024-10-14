@@ -187,7 +187,7 @@ def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,re
             res = self.query.fetch_objects(filters=w_filter,return_properties=ret_prop,return_references=ret_ref,include_vector=include_vector,return_metadata=ret_meta,limit=limit)
             
         if not return_raw:
-            res = extract_object(res, include_vector)
+            res = extract_object(res)
         return res
     except Exception as e:
         console.print_exception(show_locals=True)
@@ -531,7 +531,7 @@ def is_uuid_valid(uuid,bool_ouput=False):
     except TypeError:
         return False
 
-def atomic_return_ref(field_value):
+def atomic_return_ref(field_value, include_vector=False):
     try:
         if '.' in field_value:
             levels=field_value.split('.')
@@ -539,7 +539,13 @@ def atomic_return_ref(field_value):
             values=values.split(',')
             if len(values) == 1 and values[0] == '*':
                 values = None
-            res=QueryReference(link_on=field,return_properties=values) 
+            if 'vector' in values:
+                include_vector=True
+                values=[i for i in values if i != 'vector']
+            if field == 'vector':
+                include_vector=values
+                values=None
+            res=QueryReference(link_on=field,return_properties=values,include_vector=include_vector) 
             levels=levels[:-1]
             levels.reverse()
             for v in levels:
@@ -550,11 +556,18 @@ def atomic_return_ref(field_value):
             values=values.split(',')
             if len(values) == 1 and values[0] == '*':
                 values = None
-            return QueryReference(link_on=field, return_properties=values)
-    except ValueError:
+            if 'vector' in values:
+                include_vector=True
+                values=[i for i in values if i != 'vector']
+            if field == 'vector':
+                include_vector=values
+                values=None
+            return QueryReference(link_on=field, return_properties=values, include_vector=include_vector)
+    except ValueError as e:
+        print(e)
         return QueryReference(link_on=field_value, return_properties='$$$metal_temp_ref$$$')
     
-def extract_object(res, include_vector=False):
+def extract_object(res):
     def recursive_extract(item):
         result = {
             'uuid': str(item.uuid),
@@ -571,7 +584,7 @@ def extract_object(res, include_vector=False):
             if hasattr(item.metadata, 'score') and item.metadata.score != None:
                 result['metadata'] = {'score': item.metadata.score}
 
-        if include_vector and hasattr(item, 'vector'):
+        if hasattr(item, 'vector'):
             result['vector'] = item.vector
 
         return result
@@ -596,17 +609,27 @@ def recurse(parsed_data, res=None):
     if res is None:
         res = []
 
-    _,ref,nested=merge_keys(parsed_data)
+    prop,ref,nested=merge_keys(parsed_data)
     if nested:
         prop2,ref2,nested2=merge_keys(nested[1])
         nested_ref = nested[0]['reference']
         if ':' not in nested_ref:
             nested_ref+=':'
         nested_ref+=','.join(prop2)
-        nested = atomic_return_ref(nested_ref)
+        vec=[i for i in ref2 if i.startswith('vector')]
+        if len(vec) > 0:
+            ref2=[i for i in ref2 if not i.startswith('vector')]
+            try:
+                include_vector=vec[0].split(':')[1].split(',')
+            except Exception as e:
+                print('vec: ', vec)
+                raise e
+
+        nested = atomic_return_ref(nested_ref, include_vector)
         nested.return_references = [atomic_return_ref(i) for i in ref2]
 
-    for i in ref: res.append(atomic_return_ref(i))
+    for i in ref:
+        res.append(atomic_return_ref(i))
 
     if nested:
         if len(nested2) == 0:
@@ -615,10 +638,11 @@ def recurse(parsed_data, res=None):
         else:
             if nested.return_references == None:
                 nested.return_references = []
-            # nested.return_references+=recurse(nested2)
             nested.return_references+=recurse([{'nested': nested2}])
             res.append(nested)
     return res
+
+# def process_meta():
 
 def get_weaviate_return_fields(compiler_r, return_fields):
     if not return_fields: return None,None,None,False

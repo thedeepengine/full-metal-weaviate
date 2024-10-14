@@ -195,6 +195,8 @@ t=['name',
    'name,date,attr',
    'name,date,attr,vector',
    'name,date,attr,vector:content',
+    'name,date,attr,vector:content,name,hasChildren:name',
+    'name,date,attr,vector:content,name,hasChildren:name,vector',
    'hasChildren:name',
    'name,hasChildren:name',
    'name,date,hasChildren:name',
@@ -214,27 +216,173 @@ t=['name',
     'hasOntology:name>(hasAttrUuid.hasChildren:name,hasOntology:name>hasChildren:name)',
     'hasOntology:name>(hasAttrUuid.hasChildren:name>hasOntology:name>(hasChildren:name,hasAttr:name))',
     'name,date,hasOntology:name,hasChildren>(name,date,hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name',
-    'name,date,hasOntology:name,hasChildren>(hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name']
+    'name,date,hasOntology:name,hasChildren>(hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name'
+    ]
 
 for i in t:
     print(query_expr.parseString(i, parseAll=True).asList())
 
-
-
 compiler_r = get_return_field_compiler()
 
-return_fields = 'name,date,attr,vector'
-return_fields = 'name,date,attr,vector:content'
-return_fields = 'name,date,attr,vector:content,name'
-return_fields= 'name,date,attr,vector:content,name,hasChildren:name'
-get_weaviate_return_fields(compiler_r, return_fields)
+t = [
+    # all vector first level
+    'name,date,attr,vector', 
+    # single named vector first level
+    'name,date,attr,vector:content', 
+    # mutiple named vector first level
+    'name,date,attr,vector:content,name',
+    # all vectors for a reference,
+    'name,date,attr:content,name,hasChildren:name,vector',
+    # named vectors for a reference (has to be nested)
+    'name,date,attr:content,name,hasChildren:name>(vector:name,content)',
+    # vector with refs as well
+    'fname,vector:name,hasAttr:name,fname,hasChildren:name>(vector:name,hasChildren:name)'
+    ]
 
+
+return_fields= 'name,date,attr,vector,name,hasChildren:name,vector'
+return_fields='fname,vector:name,hasChildren:name>(vector:name)'
+return_fields='fname,vector:name,hasAttr:name,fname,hasChildren:name>(vector:name,hasChildren:name)'
+return_fields='fname,vector:name,hasAttr:name,fname,hasChildren:name>(vector:name)'
+
+for i in t:
+    r=get_weaviate_return_fields(compiler_r, i)
+    print(r)
+
+
+from full_metal_weaviate.main import get_weaviate_client, get_metal_client
+weaviate_client = os.getenv('WEAVIATE_HTTP_HOST', 'localhost')
+client_weaviate=get_weaviate_client(weaviate_client)
+client=get_metal_client(client_weaviate, opposite_refs)
+JeopardyQuestion=client.get_metal_collection('JeopardyQuestion')
+node_col=client.get_metal_collection('NodeTest')
 
 
 if __name__ == "__main__":
     unittest.main()
 
-node_col.query.fetch_objects(include_vector=True,limit=1)
 
 
-node_col.query.fetch_objects(include_vector=['content'],limit=1)
+
+
+
+
+
+weaviate_client_url = "localhost"
+del client_weaviate
+client_weaviate = get_weaviate_client(weaviate_client_url)
+client_weaviate = get_metal_client(client_weaviate)
+node_col=client_weaviate.get_metal_collection('NodeTest')
+
+
+filter_fields='instanceOf.name=Home&hasChildren.hasAttr.name=all_amenities_vec'
+return_fields='fname,hasChildren>(vector:content)'
+a=node_col.q(filter_fields,return_fields)
+len(a)
+
+
+
+
+
+
+
+
+
+res=[{'name': jmespath.search('properties.fname', i),
+    'vector': [i for j in jmespath.search('references.hasChildren[*].vector.content', i) for i in j]} 
+    for i in a]
+
+
+
+h=jmespath.search('references.hasChildren[*].vector.content', a[0])
+
+res[0]['name']
+res[0]['vector'][0]
+
+a[0]['references']['hasChildren'][2]['vector'].keys()
+
+
+
+a[0]
+
+a=node_col.q(filter_fields,return_fields)
+len(a)
+
+refs_fields=process_query_references(node_col.metal.ret_ref)
+
+for i in refs_fields:
+    print(i in filter_fields)
+
+
+return_fields='hasChildren:name,vector>(hasAttr:name)'
+
+
+
+
+
+
+def process_query_references(query_refs):
+    result = []
+
+    def recursive_concat(query_ref, path=""):
+        current_path = path + ('.' if path else '') + query_ref.link_on
+        if query_ref.return_properties:
+            for prop in query_ref.return_properties:
+                result.append(current_path + '.' + prop)
+        if query_ref.return_references:
+            if isinstance(query_ref.return_references, list):
+                for sub_ref in query_ref.return_references:
+                    recursive_concat(sub_ref, current_path)
+            else:
+                recursive_concat(query_ref.return_references, current_path)
+
+    for query_ref in query_refs:
+        recursive_concat(query_ref)
+
+    return result
+
+def filter_dict_by_keys(data, keys):
+    def get_subdict(path, source):
+        subdict = source
+        for part in path.split('.'):
+            if isinstance(subdict, dict) and part in subdict:
+                subdict = subdict[part]
+            else:
+                return None
+        return subdict
+
+    result = {}
+    for key in keys:
+        subpath_parts = key.split('.')
+        current_dict = result
+        for part in subpath_parts[:-1]:
+            if part not in current_dict:
+                current_dict[part] = {}
+            current_dict = current_dict[part]
+        final_key = subpath_parts[-1]
+        # Fetch the value from the original data based on the path
+        value = get_subdict(key, data)
+        if value is not None:
+            current_dict[final_key] = value
+
+    return result
+
+# Example usage
+data = {
+    'key1': {
+        'key2': {
+            'key3': 'value1'
+        },
+        'key4': 'value2'
+    },
+    'keya': {
+        'keyb': {
+            'keyc': 'value3'
+        },
+        'keyd': 'value4'
+    }
+}
+
+paths = ['key1.key2', 'keya.keyb.keyc']
+filtered_dict = filter_dict_by_keys(data, paths)
+print(filtered_dict)

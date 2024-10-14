@@ -1512,3 +1512,24 @@ compound.parseString('aaaa>ggg')
 
 compound = Group(Word(alphas) + (Literal(';') | Literal('>')) + delimitedList(Word(alphas)))
 OneOrMore(compound).parseString('aaaa>ggg,ll jjj>llll,ppp,ll')
+
+
+
+
+
+
+
+# raw=node_col.metal_query('name=Roommate', 'name,vector,hasChildren:name,vector')
+# res=grapql_to_d3hierarchy_format(raw[0])
+# res=trimDictD3Hierarchy(res, False)
+# md=hierarchyToMarkdown(res, 1)
+
+
+a = QueryReference(link_on='aa')
+
+node_col.query.fetch_objects(return_metadata=MetadataQuery(),limit=1)
+                             
+
+# node_col.query.fetch_objects(include_vector=['content'],
+#                              return_metadata=MetadataQuery(vector=True),
+#                              limit=1)
