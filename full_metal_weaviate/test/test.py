@@ -262,23 +262,38 @@ if __name__ == "__main__":
     unittest.main()
 
 
-
-
-
-
-
+from full_metal_weaviate.main import get_weaviate_client, get_metal_client
 
 weaviate_client_url = "localhost"
 del client_weaviate
+del node_col
 client_weaviate = get_weaviate_client(weaviate_client_url)
 client_weaviate = get_metal_client(client_weaviate)
 node_col=client_weaviate.get_metal_collection('NodeTest')
+col=node_col
+self=node_col
+filters=f'instanceOf.name=Home&fname any ids'
+instances=col.q(f'instanceOf.name=Home&fname any ids', 
+        'fname,hasChildren:attrName,name,fname,value,content,date>(hasAttr:name>hasAttrUuid:name,hasChildren:name,value)',
+        context={'ids': ['10037A1'] })
+
+instances=col.q(f'instanceOf.name=Home', 'fname,hasChildren:attrName,name,fname,value,content,date>(hasAttr:name>hasAttrUuid:name,hasChildren:name,value)',)
+
+filters_str=f'instanceOf.name=Home'
+return_fields='fname'
+instances=col.q(f'instanceOf.name=Home', 'fname')
 
 
-filter_fields='instanceOf.name=Home&hasChildren.hasAttr.name=all_amenities_vec'
-return_fields='fname,hasChildren>(vector:content)'
-a=node_col.q(filter_fields,return_fields)
-len(a)
+node_col.query.fetch_objects()
+
+res = self.query.fetch_objects()
+res = self.query.fetch_objects(filters=w_filter,return_properties=ret_prop)
+
+
+return_fields='fname,hasChildren:attrName,name,fname,value,content,date>(hasAttr:name>hasAttrUuid:name,hasChildren:name,value)'
+
+
+
 
 
 

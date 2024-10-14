@@ -605,6 +605,7 @@ def merge_keys(parsed_data):
     return merged_prop, merged_ref, nested
 
 def recurse(parsed_data, res=None):
+    include_vector=False
     if len(parsed_data) == 0: return None
     if res is None:
         res = []
