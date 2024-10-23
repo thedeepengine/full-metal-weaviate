@@ -34,7 +34,7 @@ def run_from_ipython():
 
 from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_compiler, get_return_field_compiler
 from full_metal_monad import __, safe_jmes_search
-from full_metal_weaviate.utils import StopProcessingException
+from full_metal_weaviate.utils import StopProcessingException, CollectionNotFoundException, MetalClientException
 
 
 custom_theme = Theme({
@@ -45,14 +45,18 @@ custom_theme = Theme({
 
 console = Console(theme=custom_theme)
 
-def get_metal_client(client_weaviate,opposite_refs=None):
+def get_metal_client(weaviate_host,opposite_refs=None):
     """
     """
-    client_weaviate.get_metal_collection = MethodType(get_metal_collection, client_weaviate)
-    client_weaviate.metal=MetalClientContext(client_weaviate)
-    if opposite_refs != None:
-        register_opposite(client_weaviate,opposite_refs)
-    return client_weaviate
+    try:
+        client_weaviate=get_weaviate_client(weaviate_host)
+        client_weaviate.get_metal_collection = MethodType(get_metal_collection, client_weaviate)
+        client_weaviate.metal=MetalClientContext(client_weaviate)
+        if opposite_refs != None:
+            register_opposite(client_weaviate,opposite_refs)
+        return client_weaviate
+    except MetalClientException as e:
+        pass
 
 def get_metal_collection(self,name,force_reload=False):
     try:
@@ -72,9 +76,9 @@ def get_metal_collection(self,name,force_reload=False):
                 getattr(self, 'buffer_clt')[name] = col
                 return col
             else:
-                raise StopProcessingException(f'[bold red]Error:[/] [underline] Collection {name} does not exist')
-    except StopProcessingException as e:
-        console.print(str(e))
+                raise CollectionNotFoundException(name)
+    except MetalClientException:
+        pass
 
 go_metal = get_metal_collection
 
