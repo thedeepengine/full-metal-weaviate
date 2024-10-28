@@ -32,7 +32,7 @@ def run_from_ipython():
     except NameError:
         return False
 
-from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_compiler, get_return_field_compiler
+from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_filter_compiler, get_return_field_compiler
 from full_metal_monad import __, safe_jmes_search
 from full_metal_weaviate.utils import StopProcessingException, CollectionNotFoundException, MetalClientException
 
@@ -98,7 +98,7 @@ def append_transaction(self,clt_name,data,trans_type):
 def get_opposite(self, key=None):
     try:
         if key == None:
-            return jmespath.search(f'ref_target.{self.name}', self.context) 
+            return jmespath.search(f'ref_target.{self.name}', self.context)
         else:
             opposite=jmespath.search(f'ref_target.{self.name}.{key}.opposite', self.context)
             if opposite == None:
@@ -114,15 +114,16 @@ class MetalClientContext:
         self.init_metal_batch = MethodType(init_metal_batch, client_weaviate)
         self.current_transaction_object = []
         self.current_transaction_reference = []
+        self.context=set_weaviate_context(client_weaviate)
   
 class MetalCollectionContext:
     def __init__(self, client_weaviate, clt_name):
+        self.context = client_weaviate.metal.context
         self.name=clt_name
         self.original_client=weakref.ref(client_weaviate)
-        self.context=set_weaviate_context(client_weaviate)
         self.props=__(self.context).get(f'fields.{clt_name}.properties').__
         self.refs=__(self.context).get(f'fields.{clt_name}.references').__
-        self.compiler=get_compiler(self.props+self.refs+['uuid'])
+        self.compiler=get_filter_compiler(self.props+self.refs+['uuid'])
         self.compiler_return_f=get_return_field_compiler()
         self.get_opposite=MethodType(get_opposite, self)
         self.register_opposite_ref=MethodType(register_opposite_ref, self)
@@ -135,7 +136,10 @@ def get_opp_clt(self,ref):
 
 def set_weaviate_context(client_weaviate):
     all_schema = client_weaviate.collections.list_all(simple=False)
-    fields={k: {'properties': [i.name for i in v.properties], 'references': [i.name for i in v.references]} for k,v in all_schema.items()}
+    fields={k: {'properties': [i.name for i in v.properties], 
+                'references': [i.name for i in v.references],
+                'all': [i.name for i in v.properties]+[i.name for i in v.references]} 
+                for k,v in all_schema.items()}
     types={k: {i.name:i.data_type.name for i in v.properties} for k,v in all_schema.items()}
     ref_target={k: {i.name:{'target_clt':i.target_collections[0]} for i in v.references} for k,v in all_schema.items()}
     return {'fields': fields, 'types': types, 'ref_target': ref_target}
