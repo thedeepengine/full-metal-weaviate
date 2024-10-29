@@ -31,3 +31,21 @@ class CollectionNotFoundException(MetalClientException):
         super().__init__()
         self.name = name
         console.print(f'❗Collection [bold yellow]{name}[/bold yellow] does not exist')
+
+class FieldNotFoundException(MetalClientException):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+        console.print(f'❗Field [bold yellow]{name}[/bold yellow] does not exist')
+
+class MoreThanOneCollectionException(MetalClientException):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+        console.print(f'❗Ambiguity to resolve more than one collection: {name}')
+
+class NoCollectionException(MetalClientException):
+    def __init__(self, name=''):
+        super().__init__()
+        self.name = name
+        console.print(f'❗No matching collection: {name}')

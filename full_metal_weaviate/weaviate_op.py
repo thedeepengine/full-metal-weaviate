@@ -9,23 +9,14 @@ from rich.console import Console
 from rich.traceback import install
 from rich.theme import Theme
 from rich.table import Table
+from datetime import datetime
 from weaviate.classes.query import MetadataQuery, Filter, QueryReference
 from weaviate.exceptions import WeaviateBaseError
 from weaviate.util import generate_uuid5,get_valid_uuid
 from pyparsing import ZeroOrMore, FollowedBy, Suppress, delimitedList, nestedExpr,Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc,Optional, oneOf,OneOrMore
 
-# from full_metal_weaviate.utils import run_from_ipython
-
-def run_from_ipython():
-    try:
-        __IPYTHON__
-        return True
-    except NameError:
-        return False
-
-
 from full_metal_monad import __
-from full_metal_weaviate.utils import StopProcessingException
+from full_metal_weaviate.utils import *
 
 custom_theme = Theme({
     "info": "dim cyan",
@@ -55,7 +46,7 @@ def metal_load(self,to_load,dry_run=True):
             load_pure_ref(self,resolved,opp_refs,dry_run)
         elif load_type == 'mix':
             uuids,pure_obj_create,pure_obj_update,pure_ref=load_mix(self,resolved,opp_refs,temp_uuids,dry_run)
-            self.metal.run={'uuids': uuids,'pure_obj_create': pure_obj_create,'pure_obj_update': pure_obj_update,'pure_ref': pure_ref}
+            self.metal.run={'date': datetime.now(), 'uuids': uuids,'pure_obj_create': pure_obj_create,'pure_obj_update': pure_obj_update,'pure_ref': pure_ref}
             res=uuids
         if dry_run:
             console.print('\n[magenta blue]Dry Run Mode, set dry_run=False to load[/]\n')
@@ -166,10 +157,6 @@ def load_mix(col,resolved,opp_refs,temp_uuids,dry_run=True):
         i[k][2]=uuid_map[i[k][2]]
     pure_ref=load_pure_ref(col,[],opp_refs,dry_run)
     return uuids_created+uuids_updated,pure_obj_create,pure_obj_update,pure_ref
-
-
-
-
 
 
 def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,return_raw=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
@@ -388,18 +375,11 @@ def custom_one_of(allowed_fields):
     return Regex(regex_pattern)
 
 def one_of_checker(x, allowed_fields):
-    # try:
         regex_pattern = r'^(?:' + '|'.join(map(re.escape, allowed_fields)) + ')$'
         is_match = bool(re.match(regex_pattern, x[0]))
         if not is_match:
-            raise StopProcessingException(f'[bold magenta]Field name not found:[/] {x} \n[bold magenta]Existing fields:[/] {allowed_fields}')
-    # except StopProcessingException as e:
-    #     raise
-    # except Exception as e:
-    #     console.print(f'[bold magenta]Field name not found:[/] {x} \n[bold magenta]Existing fields:[/] {allowed_fields}')
-    #     console.print_exception(extra_lines=5,show_locals=True)
-    #     raise
-    
+            raise FieldNotFoundException(x[0])
+
 def get_ident(allowed_fields=None): # sub optimal checking for authorised fields
     if allowed_fields:
         base_ident=custom_one_of(allowed_fields)
@@ -410,7 +390,7 @@ def get_ident(allowed_fields=None): # sub optimal checking for authorised fields
     ident=Combine(base_ident + ZeroOrMore('.' + subfield_ident))
     return ident
 
-def get_compiler(allowed_fields):
+def get_filter_compiler(allowed_fields):
     try:
         ident = get_ident(allowed_fields)
         operator = Regex("!=|=|<=|<|>=|>|~|any|all").setName("operator")
@@ -429,21 +409,115 @@ def get_compiler(allowed_fields):
     except StopProcessingException as e:
         console.print(e)
 
-def get_translate_filter(col,filters_str=None,context={}):
-    # if filters_str == None and query_vector == None:
-    #     raise StopProcessingException('[bold blue]One of filters_str or query_vector parameter should be set')
-    if filters_str == None: return None
+
+
+
+
+
+
+
+
+
+# def custom_one_of(allowed_fields):
+#     regex_pattern = r'\b(?:' + '|'.join(allowed_fields) + r')\b|\w+'
+#     return Regex(regex_pattern)
+
+# def one_of_checker(x, allowed_fields):
+#         regex_pattern = r'^(?:' + '|'.join(map(re.escape, allowed_fields)) + ')$'
+#         is_match = bool(re.match(regex_pattern, x[0]))
+#         if not is_match:
+#             raise FieldNotFoundException(x[0])
+
+# def get_ident(allowed_fields=None):
+
+#     def field_check(token):
+#         print(token)
+#         # context[token]
+#         # return token
     
-    if is_uuid_valid(filters_str):
-        operations=[{'field': 'uuid', 'operator': '=', 'value': filters_str}]
-        # operations=[['uuid', '=', filters_str]]
-    else:
-        try:
-            operations=col.metal.compiler.parseString(filters_str,parse_all=True)
-        except Exception as e:
-            raise e
-    w_filter=get_composed_weaviate_filter(col,operations[0],context)
-    return w_filter
+#     base_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}").setParseAction(field_check)
+#     middle_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
+#     middle_ident.setParseAction(lambda x: print(x))
+#     final_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}").setParseAction(lambda x: print('final:', x))
+#     ident=Combine(base_ident + ZeroOrMore('.' + middle_ident) + final_ident)
+#     return ident
+
+
+
+
+
+
+
+
+# from pyparsing import Regex, ZeroOrMore, Optional, ParseException, ParserElement, ParseResults
+
+# # Enable packrat parsing for potential performance gain
+# ParserElement.enablePackrat()
+
+
+# def base_field_check(token, context):
+#     print("field_check:", token)
+#     matching_clt=[k for k,v in context['fields'].items() if token in v['all']]
+#     if len(matching_clt) == 1:
+#         clt_name=token[0]
+#         return clt_name
+#     elif len(matching_clt) > 1:
+#         raise MoreThanOneCollectionException(matching_clt)
+#     elif len(matching_clt) == 0:
+#         raise NoCollectionException()
+
+
+# def get_ident(context):
+
+#     # def field_check(token, clt_name):
+#     #     print("field_check:", token)
+#     #     if allowed_fields and token[0] not in allowed_fields:
+#     #         raise ParseException(f"Token '{token[0]}' not allowed.")
+
+#     pattern = "[_A-Za-z][_0-9A-Za-z]*"
+#     base_ident = Regex(pattern).setParseAction(lambda token: base_field_check(token, context))
+#     middle_ident = Regex(pattern).setParseAction(lambda tokens: print("middle:", tokens[0]))
+#     final_ident = Regex(pattern).setParseAction(lambda tokens: print("final:", tokens[0]))
+
+#     ident = Combine(base_ident + ZeroOrMore('.' + middle_ident) + Optional('.' + final_ident))
+#     return ident
+
+# def get_filter_compiler(allowed_fields):
+#     try:
+#         ident = get_ident(allowed_fields)
+#         operator = Regex("!=|=|<=|<|>=|>|~|any|all").setName("operator")
+#         value = Regex(r'(?:[^=<>~!&|()\s"]+|"[^"]*")(?:\s+[^=<>~!&|()\s"]+)*')
+#         condition = Group(ident + operator + value)
+#         condition.setParseAction(lambda t: {'field': t[0][0], 'operator': t[0][1], 'value': t[0][2]})
+#         lpar, rpar = map(Literal, "()")
+#         expr = Forward()
+#         g = Group(lpar + expr + rpar)
+#         atom = condition | Group(lpar + expr + rpar).setParseAction(lambda t: t[1])
+#         expr <<= infixNotation(atom, [
+#             ('&', 2, opAssoc.LEFT, lambda t: {'and': t[0][::2]}),
+#             ('|', 2, opAssoc.LEFT, lambda t: {'or': t[0][::2]})
+#         ])
+#         return expr
+#     except StopProcessingException as e:
+#         console.print(e)
+
+
+
+def get_translate_filter(col,filters_str=None,context={}):
+    try:
+        if filters_str == None: return None
+        if is_uuid_valid(filters_str):
+            operations=[{'field': 'uuid', 'operator': '=', 'value': filters_str}]
+        else:
+            try:
+                operations=col.metal.compiler.parseString(filters_str,parse_all=True)
+            except Exception as e:
+                raise e
+        w_filter=get_composed_weaviate_filter(col,operations[0],context)
+        return w_filter
+    except MetalClientException:
+        pass
+
 
 def get_composed_weaviate_filter(clt,operations,context={}):
     if len(operations) == 0:
