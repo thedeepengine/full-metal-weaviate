@@ -18,6 +18,8 @@ from pyparsing import ZeroOrMore, FollowedBy, Suppress, delimitedList, nestedExp
 from full_metal_monad import __
 from full_metal_weaviate.utils import *
 
+DEBUG=False
+
 custom_theme = Theme({
     "info": "dim cyan",
     "warning": "magenta",
@@ -52,20 +54,26 @@ def metal_load(self,to_load,dry_run=True):
             console.print('\n[magenta blue]Dry Run Mode, set dry_run=False to load[/]\n')
         return res
         
-    except Exception as e:
-        objs=self.metal.original_client().metal.current_transaction_object
-        refs=self.metal.original_client().metal.current_transaction_reference
-        console.print_exception(extra_lines=5,show_locals=True)
-        if (objs or refs):
-            console.print('\n----------[bold blue] Exception Raised Triggered Metal Rollback[/] --------------\n')
-            rollback_transactions(objs,refs)
+    except MetalClientException:
+        pass
+    # except Exception as e:
+    #     objs=self.metal.original_client().metal.current_transaction_object
+    #     refs=self.metal.original_client().metal.current_transaction_reference
+    #     console.print_exception(extra_lines=5,show_locals=True)
+    #     if (objs or refs):
+    #         console.print('\n----------[bold blue] Exception Raised Triggered Metal Rollback[/] --------------\n')
+    #         rollback_transactions(objs,refs)
 
 def search_unique_ref_uuid(col, search_query):
-    r=col.q(search_query)
-    if len(r) == 1:
-        return r[0]['uuid']
-    else:
-        raise Exception('cant resolve to unique uuid') 
+    try:
+        r=col.q(search_query)
+        if len(r) == 1:
+            return r[0]['uuid']
+        else:
+            raise NoUniqueUUIDException(search_query) 
+    except MetalClientException:
+        pass
+        # raise MetalClientException 
 
 def field_meta(col,ref_name):
     is_ref=False;is_2_way=False;cleaned=None
@@ -176,11 +184,10 @@ def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,re
         if not return_raw:
             res = extract_object(res)
         return res
-    except Exception as e:
-        console.print_exception(show_locals=True)
-        console.print(str(e))
-        # raise
-        # console.print_exception(show_locals=True)
+    except MetalClientException:
+        if DEBUG:
+            console.print_exception(show_locals=True)
+        raise MetalClientException
 
 def rollback_transactions(col,objs,refs):
     if objs:
@@ -305,35 +312,36 @@ def batch_load_object(clt,objs,dry_run=True):
 
 def batch_update_object(clt,to_update,dry_run):
     uuids = []
-    if dry_run:
-        console.print('to_update', len(to_update))
-        if not hasattr(clt.metal, 'run'):
-            clt.metal.run = {}
-        clt.metal.run['to_udpate'] = [i.get('uuid') for i in to_update]
-    else:
-        for obj in to_update:
-            fields = {'uuid': 'uuid', 'prop': 'properties', 'ref': 'references', 'vector': 'vector'}
-            params = {value: obj.get(key) 
-                    for key, value in fields.items() 
-                    if obj.get(key) is not None and len(obj.get(key))>0}
+    if len(to_update) > 0:
+        if dry_run:
+            console.print('to_update', len(to_update))
+            if not hasattr(clt.metal, 'run'):
+                clt.metal.run = {}
+            clt.metal.run['to_udpate'] = [i.get('uuid') for i in to_update]
+        else:
+            for obj in to_update:
+                fields = {'uuid': 'uuid', 'prop': 'properties', 'ref': 'references', 'vector': 'vector'}
+                params = {value: obj.get(key) 
+                        for key, value in fields.items() 
+                        if obj.get(key) is not None and len(obj.get(key))>0}
 
-            if params:
-                clt.data.update(**params)
-            uuids.append(obj.get('uuid'))
+                if params:
+                    clt.data.update(**params)
+                uuids.append(obj.get('uuid'))
     return uuids
 
 def batch_load_references(clt, refs, dry_run=True):
-    if isinstance(refs, dict):
-        refs=[refs]
-    if dry_run:
-        print('batch load ref: ', len(refs))
-        # clt.metal.run['']
-    else:
-        with clt.batch.dynamic() as batch:
-            for ref in refs:
-                batch.add_reference(from_uuid=ref[0],from_property=ref[1],to=ref[2])
-                clt.metal.original_client().metal.append_transaction(clt.name,ref,'reference')
-        show_batch_error(clt,batch)
+    if len(refs) > 0:
+        if isinstance(refs, dict): refs=[refs]
+        if dry_run:
+            print('batch load ref: ', len(refs))
+            # clt.metal.run['']
+        else:
+            with clt.batch.dynamic() as batch:
+                for ref in refs:
+                    batch.add_reference(from_uuid=ref[0],from_property=ref[1],to=ref[2])
+                    clt.metal.original_client().metal.append_transaction(clt.name,ref,'reference')
+            show_batch_error(clt,batch)
     
 def show_batch_error(clt,batch):
     if batch.number_errors == 0:
@@ -377,8 +385,8 @@ def custom_one_of(allowed_fields):
 def one_of_checker(x, allowed_fields):
         regex_pattern = r'^(?:' + '|'.join(map(re.escape, allowed_fields)) + ')$'
         is_match = bool(re.match(regex_pattern, x[0]))
-        if not is_match:
-            raise FieldNotFoundException(x[0])
+        # if not is_match:
+        #     raise FieldNotFoundException(x[0])
 
 def get_ident(allowed_fields=None): # sub optimal checking for authorised fields
     if allowed_fields:
@@ -409,99 +417,9 @@ def get_filter_compiler(allowed_fields):
     except StopProcessingException as e:
         console.print(e)
 
-
-
-
-
-
-
-
-
-
-# def custom_one_of(allowed_fields):
-#     regex_pattern = r'\b(?:' + '|'.join(allowed_fields) + r')\b|\w+'
-#     return Regex(regex_pattern)
-
-# def one_of_checker(x, allowed_fields):
-#         regex_pattern = r'^(?:' + '|'.join(map(re.escape, allowed_fields)) + ')$'
-#         is_match = bool(re.match(regex_pattern, x[0]))
-#         if not is_match:
-#             raise FieldNotFoundException(x[0])
-
-# def get_ident(allowed_fields=None):
-
-#     def field_check(token):
-#         print(token)
-#         # context[token]
-#         # return token
-    
-#     base_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}").setParseAction(field_check)
-#     middle_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
-#     middle_ident.setParseAction(lambda x: print(x))
-#     final_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}").setParseAction(lambda x: print('final:', x))
-#     ident=Combine(base_ident + ZeroOrMore('.' + middle_ident) + final_ident)
-#     return ident
-
-
-
-
-
-
-
-
-# from pyparsing import Regex, ZeroOrMore, Optional, ParseException, ParserElement, ParseResults
-
-# # Enable packrat parsing for potential performance gain
-# ParserElement.enablePackrat()
-
-
-# def base_field_check(token, context):
-#     print("field_check:", token)
-#     matching_clt=[k for k,v in context['fields'].items() if token in v['all']]
-#     if len(matching_clt) == 1:
-#         clt_name=token[0]
-#         return clt_name
-#     elif len(matching_clt) > 1:
-#         raise MoreThanOneCollectionException(matching_clt)
-#     elif len(matching_clt) == 0:
-#         raise NoCollectionException()
-
-
-# def get_ident(context):
-
-#     # def field_check(token, clt_name):
-#     #     print("field_check:", token)
-#     #     if allowed_fields and token[0] not in allowed_fields:
-#     #         raise ParseException(f"Token '{token[0]}' not allowed.")
-
-#     pattern = "[_A-Za-z][_0-9A-Za-z]*"
-#     base_ident = Regex(pattern).setParseAction(lambda token: base_field_check(token, context))
-#     middle_ident = Regex(pattern).setParseAction(lambda tokens: print("middle:", tokens[0]))
-#     final_ident = Regex(pattern).setParseAction(lambda tokens: print("final:", tokens[0]))
-
-#     ident = Combine(base_ident + ZeroOrMore('.' + middle_ident) + Optional('.' + final_ident))
-#     return ident
-
-# def get_filter_compiler(allowed_fields):
-#     try:
-#         ident = get_ident(allowed_fields)
-#         operator = Regex("!=|=|<=|<|>=|>|~|any|all").setName("operator")
-#         value = Regex(r'(?:[^=<>~!&|()\s"]+|"[^"]*")(?:\s+[^=<>~!&|()\s"]+)*')
-#         condition = Group(ident + operator + value)
-#         condition.setParseAction(lambda t: {'field': t[0][0], 'operator': t[0][1], 'value': t[0][2]})
-#         lpar, rpar = map(Literal, "()")
-#         expr = Forward()
-#         g = Group(lpar + expr + rpar)
-#         atom = condition | Group(lpar + expr + rpar).setParseAction(lambda t: t[1])
-#         expr <<= infixNotation(atom, [
-#             ('&', 2, opAssoc.LEFT, lambda t: {'and': t[0][::2]}),
-#             ('|', 2, opAssoc.LEFT, lambda t: {'or': t[0][::2]})
-#         ])
-#         return expr
-#     except StopProcessingException as e:
-#         console.print(e)
-
-
+def parse_filter(compiler, filters_str):
+    operations=compiler.parseString(filters_str,parse_all=True)
+    return operations
 
 def get_translate_filter(col,filters_str=None,context={}):
     try:
@@ -510,13 +428,14 @@ def get_translate_filter(col,filters_str=None,context={}):
             operations=[{'field': 'uuid', 'operator': '=', 'value': filters_str}]
         else:
             try:
-                operations=col.metal.compiler.parseString(filters_str,parse_all=True)
+                operations=parse_filter(col.metal.compiler, filters_str)
+                # operations=col.metal.compiler.parseString(filters_str,parse_all=True)
             except Exception as e:
                 raise e
         w_filter=get_composed_weaviate_filter(col,operations[0],context)
         return w_filter
     except MetalClientException:
-        pass
+        raise MetalClientException
 
 
 def get_composed_weaviate_filter(clt,operations,context={}):
@@ -717,8 +636,6 @@ def recurse(parsed_data, res=None):
             res.append(nested)
     return res
 
-# def process_meta():
-
 def get_weaviate_return_fields(compiler_r, return_fields):
     if not return_fields: return None,None,None,False
     include_vector=[]
@@ -760,12 +677,13 @@ def get_return_field_compiler():
         return {'reference': t[0]}
         
     reference.setParseAction(get_ref)
-    nested = reference + OneOrMore(nestedExpr(content=nested_expr) | Group(reference) | values)
+    parenthesized = Group(Suppress('(') + nested_expr + Suppress(')'))
+
+    nested = reference + OneOrMore(Group(nested_expr) | Group(reference) | values | parenthesized)
     nested.setParseAction(lambda t: {'nested':t.asList()})
 
     expression = delimitedList(nested|reference|property)
     nested_expr <<= expression
-    # nested_expr.parseString('hasChildren.hasChildren:name', parseAll=True).asList()
     return nested_expr
 
 OPERATORS = {

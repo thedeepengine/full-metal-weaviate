@@ -5,6 +5,11 @@ from full_metal_weaviate.utils import StopProcessingException
 from full_metal_weaviate.weaviate_op import get_ident, get_compiler
 
 
+
+allowed_fields = ["name", "age", "salary", "department"]
+a=get_compiler(allowed_fields)
+a.parseString('name=aaaa', parseAll=True)
+
 class TestGetExpr(unittest.TestCase):
     def setUp(self):
         self.allowed_fields = ["name", "age", "salary", "department"]
@@ -191,6 +196,8 @@ class TestGetExpr(unittest.TestCase):
 
 
 
+############ return
+
 t=['name',
    'name,date,attr',
    'name,date,attr,vector',
@@ -294,8 +301,29 @@ return_fields='fname,hasChildren:attrName,name,fname,value,content,date>(hasAttr
 
 
 
+compiler=get_return_field_compiler()
+
+compiler.parseString('name=aaa,', parseAll=True).asList()
 
 
+
+from pyparsing import Word, alphas, ParseException
+
+
+a = 'name=aaa,'
+a = 'name=aaa'
+
+
+try:
+    result = compiler.parseString('name=aaa', parseAll=True).asList()
+except ParseException as pe:
+    print(f"Parsing stopped at character position: {pe.loc}")
+    raise
+
+a[4:]
+
+
+compiler.parseString('name:aaa', parseAll=True).asList()
 
 
 
@@ -401,3 +429,226 @@ data = {
 paths = ['key1.key2', 'keya.keyb.keyc']
 filtered_dict = filter_dict_by_keys(data, paths)
 print(filtered_dict)
+
+
+
+
+node_col.query.fetch_data
+
+
+node_col.query.fetch_objects()
+
+
+client_weaviate=get_metal_client('weaviate')
+
+node_col=client_weaviate.get_metal_collection('Node')
+
+
+
+"action":"hnsw_commit_log_maintenance","error":"stat /var/lib/weaviate/jeopardycategory/nLhSPSUPPrF6/main.hnsw.commitlog.d/1725891952: no such file or directory","level":"error","msg":"hnsw commit log maintenance failed","time":"2024-10-24T00:30:52Z"}
+
+
+
+
+
+
+
+
+
+
+
+##################################################################################
+
+
+
+
+# def custom_one_of(allowed_fields):
+#     regex_pattern = r'\b(?:' + '|'.join(allowed_fields) + r')\b|\w+'
+#     return Regex(regex_pattern)
+
+# def one_of_checker(x, allowed_fields):
+#         regex_pattern = r'^(?:' + '|'.join(map(re.escape, allowed_fields)) + ')$'
+#         is_match = bool(re.match(regex_pattern, x[0]))
+#         if not is_match:
+#             raise FieldNotFoundException(x[0])
+
+# def get_ident(allowed_fields=None):
+
+#     def field_check(token):
+#         print(token)
+#         # context[token]
+#         # return token
+    
+#     base_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}").setParseAction(field_check)
+#     middle_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
+#     middle_ident.setParseAction(lambda x: print(x))
+#     final_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}").setParseAction(lambda x: print('final:', x))
+#     ident=Combine(base_ident + ZeroOrMore('.' + middle_ident) + final_ident)
+#     return ident
+
+
+
+
+
+
+
+
+# from pyparsing import Regex, ZeroOrMore, Optional, ParseException, ParserElement, ParseResults
+
+# # Enable packrat parsing for potential performance gain
+# ParserElement.enablePackrat()
+
+
+# def base_field_check(token, context):
+#     print("field_check:", token)
+#     matching_clt=[k for k,v in context['fields'].items() if token in v['all']]
+#     if len(matching_clt) == 1:
+#         clt_name=token[0]
+#         return clt_name
+#     elif len(matching_clt) > 1:
+#         raise MoreThanOneCollectionException(matching_clt)
+#     elif len(matching_clt) == 0:
+#         raise NoCollectionException()
+
+
+# def get_ident(context):
+
+#     # def field_check(token, clt_name):
+#     #     print("field_check:", token)
+#     #     if allowed_fields and token[0] not in allowed_fields:
+#     #         raise ParseException(f"Token '{token[0]}' not allowed.")
+
+#     pattern = "[_A-Za-z][_0-9A-Za-z]*"
+#     base_ident = Regex(pattern).setParseAction(lambda token: base_field_check(token, context))
+#     middle_ident = Regex(pattern).setParseAction(lambda tokens: print("middle:", tokens[0]))
+#     final_ident = Regex(pattern).setParseAction(lambda tokens: print("final:", tokens[0]))
+
+#     ident = Combine(base_ident + ZeroOrMore('.' + middle_ident) + Optional('.' + final_ident))
+#     return ident
+
+# def get_filter_compiler(allowed_fields):
+#     try:
+#         ident = get_ident(allowed_fields)
+#         operator = Regex("!=|=|<=|<|>=|>|~|any|all").setName("operator")
+#         value = Regex(r'(?:[^=<>~!&|()\s"]+|"[^"]*")(?:\s+[^=<>~!&|()\s"]+)*')
+#         condition = Group(ident + operator + value)
+#         condition.setParseAction(lambda t: {'field': t[0][0], 'operator': t[0][1], 'value': t[0][2]})
+#         lpar, rpar = map(Literal, "()")
+#         expr = Forward()
+#         g = Group(lpar + expr + rpar)
+#         atom = condition | Group(lpar + expr + rpar).setParseAction(lambda t: t[1])
+#         expr <<= infixNotation(atom, [
+#             ('&', 2, opAssoc.LEFT, lambda t: {'and': t[0][::2]}),
+#             ('|', 2, opAssoc.LEFT, lambda t: {'or': t[0][::2]})
+#         ])
+#         return expr
+#     except StopProcessingException as e:
+#         console.print(e)
+
+
+
+
+
+# def get_return_field_compiler():
+#     basic_prop=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
+#     property = Combine(basic_prop + ~FollowedBy(oneOf("> :")))
+#     value=Regex("\\s*(\\*|[_A-Za-z][_0-9A-Za-z]{0,230}(\\.[_0-9A-Za-z]{1,230})*|[_A-Za-z][_0-9A-Za-z]{0,230})\\s*")
+#     values = delimitedList(Combine(value + ~FollowedBy(oneOf(":"))), combine= True)
+#     property.setParseAction(lambda t: {'property': t[0]})
+#     nested_expr = Forward()
+#     reference = Combine(value+':'+values+Suppress(Optional('>'))) | value+Suppress('>')
+
+#     def get_ref(s,l,t):
+#         print(s)
+#         print('t', t)
+#         ref_name = s.split(':')[0]
+#         if ref_name not in allowed_refs:
+#             raise InvalidFunctionException(s,l,ref_name)
+#         return {'reference': t[0]}
+        
+#     reference.setParseAction(get_ref)
+#     parenthesized = Group(Suppress('(') + nested_expr + Suppress(')'))
+
+#     nested = reference + OneOrMore(Group(nested_expr) | Group(reference) | values | parenthesized)
+#     # nested = reference + OneOrMore(nested_expr | Group(reference) | values)
+#     nested.setParseAction(lambda t: {'nested':t.asList()})
+
+#     # nested.setParseAction(lambda t: {'nested': [item for item in t.asList() if item]})
+
+#     expression = delimitedList(nested|reference|property)
+#     nested_expr <<= expression
+#     return nested_expr
+
+
+
+
+# def get_return_field_compiler():
+#     basic_prop = Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
+#     property = Combine(basic_prop + ~FollowedBy(oneOf("> :")))
+#     value = Regex("\\s*(\\*|[_A-Za-z][_0-9A-Za-z]{0,230}(\\.[_0-9A-Za-z]{1,230})*|[_A-Za-z][_0-9A-Za-z]{0,230})\\s*")
+#     values = delimitedList(Combine(value + ~FollowedBy(oneOf(":"))), combine=True)
+#     property.setParseAction(lambda t: {'property': t[0]})
+#     nested_expr = Forward()
+#     reference = Combine(value + ':' + values + Suppress(Optional('>'))) | value + Suppress('>')
+
+#     def get_ref(s, l, t):
+#         print('ttt', t)
+#         ref_name = t[0].split(':')[0]
+#         if ref_name not in allowed_refs:
+#             raise InvalidFunctionException(s, l, ref_name)
+#         return {'reference': t[0]}
+
+#     reference.setParseAction(get_ref)
+    
+#     parenthesized = Group(Suppress('(') + nested_expr + Suppress(')'))
+#     nested = reference + OneOrMore(Group(nested_expr) | Group(reference) | values | parenthesized)
+#     nested.setParseAction(lambda t: {'nested': t.asList()})
+
+#     expression = delimitedList(nested | reference | property)
+#     nested_expr <<= expression
+#     return nested_expr
+
+# def get_return_field_compiler():
+#     basic_prop = Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
+#     property = Combine(basic_prop + ~FollowedBy(oneOf("> :")))
+#     value = Regex(r"\s*(\*|[_A-Za-z][_0-9A-Za-z]{0,230}(\.[_0-9A-Za-z]{1,230})*|[_A-Za-z][_0-9A-Za-z]{0,230})\s*")
+#     values = delimitedList(Combine(value + ~FollowedBy(oneOf(":"))), combine=True)
+#     property.setParseAction(lambda t: {'property': t[0]})
+#     nested_expr = Forward()
+#     reference = Combine(value + ':' + values + Suppress(Optional('>'))) | value + Suppress('>')
+    
+#     def get_ref(t):
+#         return {'reference': t[0]}
+    
+#     reference.setParseAction(get_ref)    
+#     nested = reference + OneOrMore(nested_expr | Group(reference) | values)
+#     nested.setParseAction(lambda t: {'nested': t.asList()})
+
+#     expression = delimitedList(nested | reference | property)
+#     nested_expr <<= expression
+#     return nested_expr
+
+
+# def get_return_field_compiler(allowed_refs):
+#     basic_prop=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
+#     property = Combine(basic_prop + ~FollowedBy(oneOf("> :")))
+#     value=Regex("\\s*(\\*|[_A-Za-z][_0-9A-Za-z]{0,230}(\\.[_0-9A-Za-z]{1,230})*|[_A-Za-z][_0-9A-Za-z]{0,230})\\s*")
+#     values = delimitedList(Combine(value + ~FollowedBy(oneOf(":"))), combine= True)
+#     property.setParseAction(lambda t: {'property': t[0]})
+#     nested_expr = Forward()
+#     reference = Combine(value+':'+values+Suppress(Optional('>'))) | value+Suppress('>')
+
+#     def get_ref(s,l,t):
+#         print(s)
+#         ref_name = s.split(':')[0]
+#         if ref_name not in allowed_refs:
+#             raise InvalidFunctionException(s,l,ref_name)
+#         return {'reference': t[0]}
+        
+#     reference.setParseAction(get_ref)
+#     nested = reference + OneOrMore(nestedExpr(content=nested_expr) | Group(reference) | values)
+#     nested.setParseAction(lambda t: {'nested':t.asList()})
+
+#     expression = delimitedList(nested|reference|property)
+#     nested_expr <<= expression
+#     return nested_expr
