@@ -38,6 +38,7 @@ def get_metal_collection(self,name,force_reload=False):
         else:
             col = self.collections.get(name)
             if is_clt_existing(col):
+                name=col.name 
                 col.metal=MetalCollectionContext(self, name)
                 col.metal_query=MethodType(metal_query, col)
                 col.metal_load=MethodType(metal_load, col)
@@ -52,8 +53,6 @@ def get_metal_collection(self,name,force_reload=False):
                 raise CollectionNotFoundException(name)
     except MetalClientException:
         pass
-
-go_metal = get_metal_collection
 
 def init_metal_batch(self):
     self.current_transaction_object = []
@@ -95,7 +94,7 @@ def get_opp_clt(self,ref):
     return opposite_clt
 
 def get_opposite(self, key=None):
-    try:
+    # try:
         if key == None:
             path=f'ref_target.{self.name}'
         else:
@@ -104,8 +103,8 @@ def get_opposite(self, key=None):
         if opposite == None:
             raise NoOppositeException(key)
         return opposite
-    except MetalClientException:
-        pass
+    # except MetalClientException:
+    #     pass
 
 def set_weaviate_context(client_weaviate):
     all_schema = client_weaviate.collections.list_all(simple=False)
@@ -123,3 +122,7 @@ def register_opposite(self, ref_source, ref_target):
     source['opposite']=ref_target
     target_clt_name=source['target_clt']
     ctx[target_clt_name][ref_target]['opposite']=ref_source
+
+
+
+go_metal = get_metal_collection

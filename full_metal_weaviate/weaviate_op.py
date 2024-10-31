@@ -10,10 +10,15 @@ from rich.traceback import install
 from rich.theme import Theme
 from rich.table import Table
 from datetime import datetime
+from weaviate.exceptions import WeaviateQueryError
 from weaviate.classes.query import MetadataQuery, Filter, QueryReference
 from weaviate.exceptions import WeaviateBaseError
 from weaviate.util import generate_uuid5,get_valid_uuid
-from pyparsing import ZeroOrMore, FollowedBy, Suppress, delimitedList, nestedExpr,Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc,Optional, oneOf,OneOrMore
+from weaviate.types import UUID
+
+from pyparsing import (ZeroOrMore, FollowedBy, Suppress, delimitedList, nestedExpr,Literal, Combine, Regex, Group, Forward, infixNotation, opAssoc,Optional, oneOf,OneOrMore, ParseException)
+from pydantic import validate_call
+from typing import Union
 
 from full_metal_monad import __
 from full_metal_weaviate.utils import *
@@ -46,14 +51,14 @@ def metal_load(self,to_load,dry_run=True):
 
         if load_type == 'ref':
             load_pure_ref(self,resolved,opp_refs,dry_run)
+            res = None
         elif load_type == 'mix':
             uuids,pure_obj_create,pure_obj_update,pure_ref=load_mix(self,resolved,opp_refs,temp_uuids,dry_run)
             self.metal.run={'date': datetime.now(), 'uuids': uuids,'pure_obj_create': pure_obj_create,'pure_obj_update': pure_obj_update,'pure_ref': pure_ref}
-            res=uuids
+            res = uuids
         if dry_run:
             console.print('\n[magenta blue]Dry Run Mode, set dry_run=False to load[/]\n')
         return res
-        
     except MetalClientException:
         pass
     # except Exception as e:
@@ -166,28 +171,46 @@ def load_mix(col,resolved,opp_refs,temp_uuids,dry_run=True):
     pure_ref=load_pure_ref(col,[],opp_refs,dry_run)
     return uuids_created+uuids_updated,pure_obj_create,pure_obj_update,pure_ref
 
-
-def metal_query(self,filters_str=None,return_fields=None,context={},limit=100,return_raw=False,query_vector=None,target_vector=None,simplify_unique=True,auto_limit=None):
+@validate_call
+def metal_query(self,
+                filters_str:Union[str, UUID]=None,
+                return_fields:str=None,
+                context:dict={},
+                limit:int=100,
+                return_raw:bool=False,
+                query_vector=None,
+                target_vector=None,
+                auto_limit=None):
     try:
-        w_filter=get_translate_filter(self,filters_str,context)
-        ret_prop,ret_ref,ret_meta,include_vector=get_weaviate_return_fields(self.metal.compiler_return_f,return_fields)
-        self.metal.w_filter=w_filter
-        self.metal.ret_prop=ret_prop
-        self.metal.ret_ref=ret_ref
-        self.metal.ret_meta=ret_meta
-        self.metal.include_vector=include_vector
-        if query_vector != None:
-            res = self.query.near_vector(near_vector=query_vector,target_vector=target_vector,filters=w_filter,return_properties=ret_prop,return_references=ret_ref,return_metadata=ret_meta,include_vector=include_vector,limit=limit,auto_limit=auto_limit)
-        else:
-            res = self.query.fetch_objects(filters=w_filter,return_properties=ret_prop,return_references=ret_ref,include_vector=include_vector,return_metadata=ret_meta,limit=limit)
-            
-        if not return_raw:
-            res = extract_object(res)
-        return res
+        try:
+            w_filter=get_translate_filter(self,filters_str,context)
+            ret_prop,ret_ref,ret_meta,include_vector=get_weaviate_return_fields(self.metal.compiler_return_f,return_fields)
+            self.metal.w_filter=w_filter
+            self.metal.ret_prop=ret_prop
+            self.metal.ret_ref=ret_ref
+            self.metal.ret_meta=ret_meta
+            self.metal.include_vector=include_vector
+            if query_vector != None:
+                res = self.query.near_vector(near_vector=query_vector,target_vector=target_vector,filters=w_filter,return_properties=ret_prop,return_references=ret_ref,return_metadata=ret_meta,include_vector=include_vector,limit=limit,auto_limit=auto_limit)
+            else:
+                res = self.query.fetch_objects(filters=w_filter,return_properties=ret_prop,return_references=ret_ref,include_vector=include_vector,return_metadata=ret_meta,limit=limit)
+                
+            if not return_raw:
+                res = extract_object(res)
+            return res
+        except WeaviateQueryError as e:
+            match = re.search(r"no such prop with name '(\w+)' found in class '(\w+)'", str(e))
+            if match:
+                prop_name = match.group(1)
+                class_name = match.group(2)
+                raise MetalWeaviateQueryError(prop_name, class_name) from None
+            else:
+                raise WeaviateQueryError
     except MetalClientException:
         if DEBUG:
             console.print_exception(show_locals=True)
-        raise MetalClientException
+        pass
+        # raise MetalClientException
 
 def rollback_transactions(col,objs,refs):
     if objs:
@@ -243,30 +266,43 @@ def check_format(col,to_load):
     allowed_fields = col.metal.props+col.metal.refs+['vector', 'uuid']
 
     def is_ref_array(to_load):
-        try:
-            if (isinstance(to_load[0], list)
-            & all(len(obj) == 3 for obj in to_load)
-            & all([is_uuid_valid(i[0], True)&is_uuid_valid(i[2], True) for i in to_load])):
-                return True
-            return False
-        except Exception:
-            pass
-    
-    def is_ref_dict(to_load):
-        try:
-            if (isinstance(to_load[0], dict) & all([len(obj) == 3 for obj in to_load])& (set([j for i in to_load for j in list(i.keys())]) == set(('from_uuid', 'from_property', 'to')))& all([is_uuid_valid(i['from_uuid'], True)&is_uuid_valid(i['to'], True) for i in to_load])):
-                return True
-        except Exception:
-            pass
+        if isinstance(to_load[0], list):
+            if (all(len(obj) == 3 for obj in to_load)
+            and all([is_uuid_valid(i[0], True)
+                    and is_uuid_valid(i[2], True) for i in to_load])):
+                if all([i[1] in col.metal.refs or i[1][2:] in col.metal.refs for i in to_load]):
+                    return True
+                else:
+                    not_found_fields=[i[1] for i in to_load if i[1] not in col.metal.refs]
+                    raise FieldNotFoundException(', '.join(not_found_fields), col.metal.refs)
         return False
 
-    def is_mix_dict(col,to_load,allowed_fields):
+    def is_ref_dict(to_load):
+        if (isinstance(to_load[0], dict)
+            and all([len(obj) == 3 for obj in to_load])
+            and (set([j for i in to_load for j in list(i.keys())]) == set(('from_uuid', 'from_property', 'to')))
+            and all([is_uuid_valid(i['from_uuid'], True)
+                    and is_uuid_valid(i['to'], True) for i in to_load])):
+
+                if all([i['from_property'] in col.metal.refs or i['from_property'][2:] in col.metal.refs for i in to_load]):
+                    return True
+                else:
+                    not_found_fields=[i['from_property'] for i in to_load if i['from_property'] not in col.metal.refs]
+                    raise FieldNotFoundException(', '.join(not_found_fields), col.metal.refs)
+        else:
+            return False
+
+    def is_mix_dict(to_load,allowed_fields):
         try:
-            k_clean=[k[2:] if k.startswith('<>') else k for i in to_load for k in i] 
-            unique_k=list(set(k_clean))
-            is_naming_ok = __(unique_k).apply(lambda x: x in allowed_fields)
-            if all(is_naming_ok): 
-                return True
+            if all([isinstance(i, dict) for i in to_load]):
+                k_clean=[k[2:] if k.startswith('<>') else k for i in to_load for k in i] 
+                unique_k=list(set(k_clean))
+                is_naming_ok = __(unique_k).apply(lambda x: x in allowed_fields)
+                if all(is_naming_ok): 
+                    return True
+                else:
+                    not_found_fields=[unique_k[i] for i in range(len(unique_k)) if not is_naming_ok[i]]
+                    raise FieldNotFoundException(', '.join(not_found_fields), allowed_fields)
         except Exception:
             pass
         return False
@@ -276,10 +312,10 @@ def check_format(col,to_load):
     elif is_ref_dict(to_load):
         to_load=[[i['from_uuid'],i['from_property'],i['to']] for i in to_load]
         load_type = 'ref'
-    elif is_mix_dict(col,to_load,allowed_fields):
+    elif is_mix_dict(to_load,allowed_fields):
         load_type = 'mix'
     else:
-        raise Exception('Format not recognized')
+        raise FormatNotRecognisedException()
     return to_load, load_type
 
 def check_naming(keys,prop_names,ref_names):
@@ -393,12 +429,12 @@ def get_ident(allowed_fields=None): # sub optimal checking for authorised fields
         base_ident=custom_one_of(allowed_fields)
     else:
         base_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
-    base_ident.add_parse_action(lambda x: one_of_checker(x,allowed_fields))
+    base_ident#.add_parse_action(lambda x: one_of_checker(x,allowed_fields))
     subfield_ident=Regex("[_A-Za-z][_0-9A-Za-z]{0,230}")
     ident=Combine(base_ident + ZeroOrMore('.' + subfield_ident))
     return ident
 
-def get_filter_compiler(allowed_fields):
+def get_filter_compiler(allowed_fields=None):
     try:
         ident = get_ident(allowed_fields)
         operator = Regex("!=|=|<=|<|>=|>|~|any|all").setName("operator")
@@ -418,8 +454,11 @@ def get_filter_compiler(allowed_fields):
         console.print(e)
 
 def parse_filter(compiler, filters_str):
-    operations=compiler.parseString(filters_str,parse_all=True)
-    return operations
+    try:
+        operations=compiler.parseString(filters_str,parse_all=True)
+        return operations
+    except ParseException as e:
+        raise FMWParseFilterException(filters_str)
 
 def get_translate_filter(col,filters_str=None,context={}):
     try:
@@ -427,16 +466,11 @@ def get_translate_filter(col,filters_str=None,context={}):
         if is_uuid_valid(filters_str):
             operations=[{'field': 'uuid', 'operator': '=', 'value': filters_str}]
         else:
-            try:
-                operations=parse_filter(col.metal.compiler, filters_str)
-                # operations=col.metal.compiler.parseString(filters_str,parse_all=True)
-            except Exception as e:
-                raise e
+            operations=parse_filter(col.metal.compiler, filters_str)
         w_filter=get_composed_weaviate_filter(col,operations[0],context)
         return w_filter
     except MetalClientException:
         raise MetalClientException
-
 
 def get_composed_weaviate_filter(clt,operations,context={}):
     if len(operations) == 0:
@@ -636,10 +670,18 @@ def recurse(parsed_data, res=None):
             res.append(nested)
     return res
 
+def parse_return_field(compiler, return_fields):
+    try:
+        parsed_data=compiler.parseString(return_fields, parseAll=True).asList()
+        return parsed_data
+    except ParseException as e:
+        raise FMWParseReturnException(return_fields)
+
+
 def get_weaviate_return_fields(compiler_r, return_fields):
     if not return_fields: return None,None,None,False
     include_vector=[]
-    parsed_data=compiler_r.parseString(return_fields, parseAll=True).asList()
+    parsed_data=parse_return_field(compiler_r, return_fields)
     props=[i['property'] for i in parsed_data if 'property' in i] 
     if 'vector' in props:
         include_vector=True

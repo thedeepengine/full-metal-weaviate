@@ -1,11 +1,17 @@
 import os
 import unittest
+import copy
 import weaviate.classes as wvc
 from weaviate.classes.config import Property, DataType, ReferenceProperty, Configure, Tokenization
 from main import get_metal_client
 from weaviate import WeaviateClient
 from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
+from dataclasses import dataclass
+
+from weaviate_op import get_filter_compiler, parse_filter, get_return_field_compiler, get_weaviate_return_fields
+from utils import FMWParseFilterException, MetalClientException
+from pyparsing import ParseException
 
 def get_weaviate_client():
     weaviate_host = os.getenv('WEAVIATE_HTTP_HOST', 'localhost')
@@ -67,248 +73,281 @@ clt2.config.add_reference(ReferenceProperty(name="refOf2",target_collection="clt
 
 
 
-#### get collection 
+##################################################
+############ get_collection 
+##################################################
 
-clt1=client_metal.get_metal_collection('clt1')
-clt2=client_metal.get_metal_collection('clt2')
+client.close()
+client = weaviate.connect_to_local()
+metal_client=get_metal_client(client)
+clt1=metal_client.get_metal_collection('clt1')
+clt2=metal_client.get_metal_collection('clt2')
 
+clt1.metal.register_opposite('hasRef1', 'refOf1')
+clt1.metal.register_opposite('hasRef2', 'refOf2')
+
+##################################################
 ############ parse_filter
-
-from dataclasses import dataclass
-
+##################################################
 @dataclass
 class parse_filter_test:
     desc: str
     filters_str: str
     recorded: dict = None
 
-parse_filter = [
-parse_filter_test('filter on simple attribute on equal operator for string type',
-                  'string_field=hhh'),
-                  'filter on simple attribute on equal operator for string type']
+parse_filter_instance = [
+('filter on simple attribute on equal operator for string type',
+'string_field=hhh'),
+('filter on simple attribute on like operator for string type',
+ 'string_field~*hhh*'),
+('filter on simple attribute on equal operator for int type',
+ 'integer_field=1'),
+('filter on simple attribute on equal operator for float type',
+ 'float_field=1.0'),
+('filter on simple attribute on equal operator for date type',
+ 'date_field=2024/01/01'),
+('filter on uuid with field name',
+ 'uuid=11111111-1111-1111-1111-111111111111'),
+('filter on uuid without field name',
+ '11111111-1111-1111-1111-111111111111'),
+('filter on ref',
+ 'hasCategory.title=value'),
+('logical and filter',
+ 'name=nameValue&content=contentValue'),
+('logical or filter',
+ 'name=nameValue|content=contentValue'),
+('logical and and or filter',
+ 'name=nameValue|content=contentValue&description~me'),
+('deeply nested',
+ 'hasChildren.hasOntology.hasProperty.name=property_value'),
+('complex query mix of simple attribute, logical, ref',
+ 'question=question_value&answer=answer_value|hasCategory.title=category_value'),
+('complex logical filter with priority parenthesis',
+ '((name = John) & (age > 30)) | ((department = Sales) & (salary >= 50000))'),
+('complex logical filter without priority parenthesis',
+ 'name = John & age > 30 | department = Sales & salary >= 50000'),
 
-test_that = [{'filters_str':'string_field=hhh',
-              'desc': 'filter on simple attribute on equal operator for string type'}]
+ ('wrong syntax just a word',
+  'fieldcantbealone'),
+   ('wrong syntax operator',
+  'field:name')
+]
 
-test_that = [{'to_test':'string_field~*hhh*',
-              'desc': 'filter on simple attribute on like operator for string type'}]
+to_test = [parse_filter_test(i[0], i[1]) for i in parse_filter_instance]
 
-test_that = [{'to_test':'integer_field=1',
-              'desc': 'filter on simple attribute on equal operator for int type'}]
+def record_parse_filter(to_test):
+    compiler=get_filter_compiler()
+    to_test=copy.deepcopy(to_test)
+    for i in to_test:
+            try:
+                res=parse_filter(compiler, i.filters_str)
+                i.recorded=res
+            except MetalClientException as e:
+                i.recorded = e
+                pass
+    return to_test
 
-test_that = [{'to_test':'float_field=1.0',
-              'desc': 'filter on simple attribute on equal operator for float type'}]
+tested=record_parse_filter(to_test)
 
-test_that = [{'to_test':'date_field=2024/01/01',
-              'desc': 'filter on simple attribute on equal operator for date type'}]
-
-test_that = [{'to_test':'date_field=2024/01/01',
-              'desc': 'filter on simple attribute on equal operator for date type'}]
-
-test_that = [{'to_test':'uuid=11111111-1111-1111-1111-111111111111',
-              'desc': 'filter on uuid with field name'}]
-
-test_that = [{'to_test':'11111111-1111-1111-1111-111111111111',
-              'desc': 'filter on uuid without field name'}]
-
-test_that = [{'to_test':'hasCategory.title=value',
-              'desc': 'filter on ref'}]
-
-test_that = [{'to_test':'name=nameValue&content=contentValue',
-              'desc': 'logical and filter'}]
-
-test_that = [{'to_test':'name=nameValue|content=contentValue',
-              'desc': 'logical or filter'}]
-
-test_that = [{'to_test':'name=nameValue|content=contentValue&description~me',
-              'desc': 'logical and and or filter'}]
-
-test_that = [{'to_test':'hasChildren.hasOntology.hasProperty.name=property_value',
-              'desc': 'deeply nested'}]
-
-test_that = [{'to_test':'question=question_value&answer=answer_value|hasCategory.title=category_value',
-              'desc': 'complex query mix of simple attribute, logical, ref'}]
-
-test_that = [{'to_test':'((name = John) & (age > 30)) | ((department = Sales) & (salary >= 50000))',
-              'desc': 'complex logical filter with priority parenthesis'}]
-
-test_that = [{'to_test':'name = John & age > 30 | department = Sales & salary >= 50000',
-              'desc': 'complex logical filter with priority parenthesis'}]
-
-
-compiler=get_filter_compiler(['name'])
-parse_filter(compiler, 'namde=jjj')
-
-try:
-    parse_filter(compiler, 'namde')
-except ParseBaseException as e:
-    print('aaa')
-    print(e)
-
-for i in 
-parse_filter(compiler, )
-
-
-
-
-
+#############################################
 ############ return fields
+#############################################
 
-{'to_test': 'name',
-    'desc': 'single attribute'},
+@dataclass
+class return_field_data:
+    desc: str
+    return_field: str
+    recorded: dict = None
 
-t=[
-    'name',
-   'name,date,attr', # multiple attribute
-   'name,date,attr,vector', # attribute and default vector
-   'name,date,attr,vector:content', # attribute and named vector
-    'name,date,attr,vector:content,name,hasChildren:name', # simple attr with named vector and ref
-    'name,date,attr,vector:content,name,hasChildren:name,vector',
-   'hasChildren:name',
-   'name,hasChildren:name',
-   'name,date,hasChildren:name',
-   'name,date,hasChildren:name,value,content',
-   'hasChildren:name,value,content',
-    'hasChildren:name,hasInstance:name',
-    'hasChildren.hasChildren:name',
-    'hasChildren:name,value,hasChildren:name',
-    'hasChildren:name>hasChildren:name',
-    'hasChildren:name>hasChildren:name>hasChildren:name',
-    'hasChildren.hasChildren.hasChildren:name>hasAttrUuid:name',
-    'hasChildren6:name>(hasAttrUuid:name,hasChildren:name>(hasAttrUuid:name,hasChildren:name))',
-    'hasChildren:name>(hasAttrUuid.hasChildren:name,hasChildren:name)',
-    'hasChildren>(hasAttrUuid.hasChildren:name,hasChildren:name)',
-    'hasChildren:name>(hasAttrUuid.hasChildren:name,value,attr,hasChildren:name)',
-    'hasChildren:name>(hasAttrUuid.hasChildren:name,value,attr,hasChildren:name,hasAttr:name)',
-    'hasOntology:name>(hasAttrUuid.hasChildren:name,hasOntology:name>hasChildren:name)',
-    'hasOntology:name>(hasAttrUuid.hasChildren:name>hasOntology:name>(hasChildren:name,hasAttr:name))',
-    'name,date,hasOntology:name,hasChildren>(name,date,hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name',
-    'name,date,hasOntology:name,hasChildren>(hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name',
-    'name,hasChildren>(name,date,hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name',
-    'fname,hasChildren:attrName,name,fname,value,content,date>(hasAttr:name>(hasAttrUuid:name),hasChildren:name,value)'
+return_field_instance=[
+    ('simple attribute',
+    'name'),
+    ('multiple attribute', 
+   'name,date,attr'),
+   ('attribute and default vector',
+   'name,date,attr,vector'),
+   ('attribute and named vector',
+   'name,date,attr,vector:content'),
+   ('simple attribute with named vector and reference',
+    'name,date,attr,vector:content,name,hasChildren:name'),
+    ('vector for reference',
+    'name,date,attr,vector:content,name,hasChildren:name,vector'),
+    ('simple reference',
+   'hasChildren:name'),
+   ('simple attribute and reference',
+    'name,hasChildren:name'),
+    ('multiple simple attributes and mutilple reference attributes',
+   'name,date,hasChildren:name,value,content'),
+   ('multiple reference attributes',
+    'hasChildren:name,value,content'),
+    ('multiple references',
+    'hasChildren:name,hasInstance:name'),
+    ('deeply nested 2 level reference',
+    'hasChildren.hasChildren:name'),
+    ('multiple reference, multiple attributes',
+    'hasChildren:name,value,hasChildren:name,desc'),
+    ('deeply nested with first level requiring fields',
+    'hasChildren:name>hasChildren:name'),
+    ('deeply nested with > syntax',
+    'hasChildren:name>hasChildren:name>hasChildren:name'),
+    ('complex deeply nested with mix nesting syntax',
+    'hasChildren.hasChildren.hasChildren:name>hasAttrUuid:name'),
+    ('complex nesting with priority parenthesis',
+    'hasChildren:name>(hasAttrUuid:name,hasChildren:name>(hasAttrUuid:name,hasChildren:name))'),
+    ('complex nesting, syntax mix',
+    'hasChildren:name>(hasAttrUuid.hasChildren:name,hasChildren:name)'),
+    ('complex nesting',
+    'hasChildren>(hasAttrUuid.hasChildren:name,hasChildren:name)'),
+    ('complex nesting, multiple nested references, multiples attributes',
+    'hasChildren:name>(hasAttrUuid.hasChildren:name,value,attr,hasChildren:name,hasAttr:name)'),
+    ('complex nesting, deeply nested mix syntax',
+    'hasOntology:name>(hasAttrUuid.hasChildren:name,hasOntology:name>hasChildren:name)'),
+    ('complex nesting',
+    'hasOntology:name>(hasAttrUuid.hasChildren:name>hasOntology:name>(hasChildren:name,hasAttr:name))'),
+    ('complex nesting',
+    'name,date,hasOntology:name,hasChildren>(name,date,hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name'),
+    ('complex nesting',
+    'name,date,hasOntology:name,hasChildren>(hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name'),
+    ('complex nesting',
+    'name,hasChildren>(name,date,hasChildren:name,hasAttrUuid:name>hasChildren:name),hasAttrUuid:name'),
+    ('complex nesting',
+    'fname,hasChildren:attrName,name,fname,value,content,date>(hasAttr:name>(hasAttrUuid:name),hasChildren:name,value)'),
+    ('wrong syntax',
+     'name=value')
     ]
 
-compiler=get_return_field_compiler()
+to_test = [return_field_data(i[0], i[1]) for i in return_field_instance]
 
-res_save=[]
-for i in t:
-    print(i)
-    temp = get_weaviate_return_fields(compiler,i)
-    res_save.append(temp)
+i=return_field_data('wrong syntax','name=value')
 
-c=get_return_field_compiler()
-res_save=[]
-for i in t:
-    print(i)
-    temp=c.parseString(i, parseAll=True).asList()
-    res_save.append(temp)
+def record_parse_return_field(to_test):
+    compiler=get_return_field_compiler()
+    to_test=copy.deepcopy(to_test)
+    for i in to_test:
+        try:
+            res=parse_return_field(compiler, i.return_field)
+            i.recorded=res
+        except MetalClientException as e:
+            i.recorded=e
+            pass
+    return to_test
 
+tested=record_parse_return_field(to_test)
 
+def record_get_weaviate_return_fields(to_test):
+    compiler=get_return_field_compiler()
+    to_test=copy.deepcopy(to_test)
+    for i in to_test:
+            try:
+                res=get_weaviate_return_fields(compiler, i.return_field)
+                i.recorded=res
+            except MetalClientException as e:
+                i.recorded=MetalClientException(i)
+                pass
+    return to_test
 
+tested=record_get_weaviate_return_fields(to_test)
 
+#############################################
+############ metal_load
+#############################################
 
-def parse_return_field(compiler, return_field):
-    try:
-        return compiler.parseString(return_field, parseAll=True)
-    # .asList()
-    except InvalidFunctionException as e:
-        pass
-        # print(e)
-        # print(e)
-        # print(f"Parse error in {e.parserElement}: {e}")
+# load simple attribute
 
-
-allowed_refs=['hasRef1']
-c=get_return_field_compiler()
-return_field='hasRef:name'
-return_field='abcf:ddd'
-return_field='hhh,hasRef1:name,hasRef2>name,vector'
-parse_return_field(c,return_field)
-
-
-
-'hasChildren:name,value,hasChildren:name',
-'hasChildren:name>hasChildren:name',
-'hasChildren:name>hasChildren:name>hasChildren:name',
-'hasChildren.hasChildren.hasChildren:name>hasAttrUuid:name',
-'hasChildren6:name>(hasAttrUuid:name,hasChildren:name>(hasAttrUuid:name,hasChildren:name))',
-'hasChildren:name>(hasAttrUuid.hasChildren:name,hasChildren:name)',
-'hasChildren>(hasAttrUuid.hasChildren:name,hasChildren:name)',
+to_load=[{'text_field': 'test'}]
+uuid=clt1.metal_load(to_load, False)
+clt1.metal_query(uuid[0])
 
 
+# load mix attributes and references
+
+uuid_target=clt2.metal_load({'text_field_clt2': 'test__0001'}, False)[0]
+uuid1=clt1.metal_load({'text_field': 'w1','hasRef1': uuid_target}, False)
+
+clt1.metal_query(uuid1[0])
+clt1.metal_query(uuid1[0], 'hasRef1:text_field_clt2')
 
 
-ref_field.parseString('hasdRef1', parseAll=True).asList()
+# load pure references
+
+## using array format
+uuid_source=str(clt1.metal_load({'text_field': 'test__0001'}, False)[0])
+uuid_target=clt2.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
+
+to_load=[[uuid_source,'hasRef1',uuid_target]]
+clt1.l(to_load, False)
+
+clt1.q(uuid_source, 'hasRef1:text_field_clt2')
+
+## using dict format
+uuid_source=str(clt1.metal_load({'text_field': 'test__0001'}, False)[0])
+uuid_target=clt2.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
+
+to_load=[{'from_uuid': uuid_source, 'from_property':'hasRef1', 'to':uuid_target}]
+clt1.l(to_load, False)
+
+clt1.q(uuid_source, 'hasRef1:text_field_clt2')
+
+## load 2 way references
+uuid_source=clt1.metal_load({'text_field': 'test__0001'}, False)[0]
+uuid_target=clt2.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
+to_load=[{'from_uuid': uuid_source, 'from_property':'<>hasRef1', 'to':uuid_target}]
+
+clt1.l(to_load, False)
+
+clt1.q(uuid_source, 'hasRef1:text_field')
+clt2.q(uuid_target, 'refOf1:text_field')
+
+# load unresolved refs
+## for pure refeference
+uuid_source=clt1.metal_load({'text_field': 'test__0001'}, False)[0]
+uuid_target=clt2.metal_load({'text_field_clt2': 'test__pure_ref'}, False)[0]
+
+q='text_field_clt2=test__pure_ref'
+
+to_load=[{'from_uuid': uuid_source, 'from_property':'<>hasRef1', 'to': q}]
+
+clt1.l(to_load, False)
+
+clt1.q(uuid_source, 'hasRef1:text_field_clt2')
+clt2.q(uuid_target, 'refOf1:text_field')
 
 
-from pyparsing import alphanums, ParseBaseException
+clt1.q(uuid_target, 'refOf1:text_field')
+
+## for mix ref
+uuid_target=clt2.metal_load({'text_field_clt2': 'test__123456'}, False)[0]
+
+uuid_source=clt1.metal_load({'text_field': 'w1',
+                       'hasRef1': 'text_field_clt2=test__123456'}, False)
+
+clt1.q(uuid_source, 'refOf1:text_field')
+
+get_translate_filter(clt1, 'text_field=test__123456')
+
+clt1.q(uuid1[0])
+
+metal_query(clt1,uuid1[0])
+
+clt1.q(uuid1[0])
+
+# prop with vector / named vector
+# pure ref one way dict
+# pure ref two way dict
+# pure ref array
+# mix prop and resolved refs
+# mix prop and resolved 2 way refs
+# already existing ref
 
 
-class InvalidArgumentException(ParseFatalException):
-    def __init__(self, s, loc, msg):
-        super(InvalidArgumentException, self).__init__(
-                s, loc, "invalid argument '%s'" % msg)
-
-class InvalidFunctionException(ParseFatalException): 
-    def __init__(self, s, loc, msg):
-        super(InvalidFunctionException, self).__init__(
-                s, loc, "invalid function '%s'" % msg)
-
-
-class InvalidFunctionException(ParseFatalException): 
-    def __init__(self, s, loc, msg):
-        super(InvalidFunctionException, self).__init__(
-                s, loc)
-        console.print(f'❗Ref field not found: [bold yellow]{s}[/bold yellow]')
-
-
-def error(exceptionClass):
-    def raise_exception(s,l,t):
-        print('s', s)
-        raise exceptionClass(s,l,t[0])
-    return Word(alphas,alphanums).setParseAction(raise_exception)
-
-LPAR,RPAR = map(Suppress, "()")
-valid_arguments = ['abc', 'bcd', 'efg']
-valid_functions = ['avg', 'min', 'max']
-argument = oneOf(valid_arguments) | error(InvalidArgumentException)
-function_name = oneOf(valid_functions)  | error(InvalidFunctionException)
-function_call = Group(function_name('fname') + LPAR + argument('arg') + RPAR)
-
-
-tests = """\
-    avg(abc)
-    sum(abc)
-    avg(xyz)
-    """.splitlines()
-for test in tests:
-    if not test.strip(): continue
-    try:
-        print(test.strip())
-        result = function_call.parseString(test, parseAll=True)
-    except ParseBaseException as pe:
-        print(pe)
-    else:
-        print(result[0].dump())
-    print
-    
-# loading attributes
-
-clt1.
-
-# loading mix attributes and references
-
-# loading pure references
-
-
-## loading 2 way references
-
+#############################################
+############ Metal Administration
+#############################################
 
 # get metal client
 
 ## from client weaviate
 import weaviate
-
 
 weaviate_client.close()
 weaviate_client=get_weaviate_client()
@@ -317,93 +356,14 @@ JeopardyQuestion = metal_client.get_metal_collection('JeopardyQuestion')
 
 # get metal collection
 
-
-self=JeopardyQuestion
-to_load={'question': 'why?'}
-JeopardyQuestion.metal_load({'question': 'why?'}, False)
-
-
-JeopardyQuestion.metal_query()
+# register opposite
 
 JeopardyQuestion.metal.register_opposite('hasCategory', 'hasQuestion')
 JeopardyQuestion.metal.register_opposite('hasAssociatedQuestion', 'associatedQuestionOf')
 
-
+# get registered opposite
 
 JeopardyQuestion.metal.get_opposite('hasCategory')
-
-JeopardyQuestion.metal.context['ref_target']
-
-self=JeopardyQuestion
-ref_source='hasCategory'
-ref_target='hasQuestion'
-
-
-
-## Register two-way relationships
-
-
-################
-
-
-
-
-JeopardyQuestion.q()
-
-JeopardyQuestion.l({'question': 'test__0001'}, False)
-JeopardyQuestion.l({'question3': 'test__0001'}, True)
-
-uuid1=str(JeopardyQuestion.l({'fname': 'test__0001'}, False)[0])
-uuid2=str(node_col.l({'fname': 'test__0002'}, False)[0])
-uuid3=str(node_col.l({'fname': 'test__0003'}, False)[0])
-uuid4=str(node_col.l({'fname': 'test__0004'}, False)[0])
-uuid5=str(node_col.l({'fname': 'test__0005'}, False)[0])
-uuid6=str(node_col.l({'fname': 'test__0006'}, False)[0])
-uuid7=str(node_col.l({'fname': 'test__0007'}, False)[0])
-
-
-JeopardyCategory.q('name=home')
-
-t=[]
-
-
-
-
-
-
-#############
-
-two_way_relationship = [
-    two_way('JeopardyQuestion.hasCategory', 'JeopardyCategory.hasQuestion'),
-    two_way('JeopardyQuestion.hasAssociatedQuestion', 'JeopardyQuestion.associatedQuestionOf')
-    ]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-clt1.metal_load({'text_field': 'who?'})
-
-
-uuid1=str(clt1.metal_load({'text_field': 'test__0001'}, False)[0])
-uuid1=str(clt2.metal_load({'text_field_clt2': 'test__0001'}, False)[0])
-
-uuid2=clt1.metal_load({'text_field': 'w1','hasRef1': uuid1}, False)
-
-
-
-clt1.metal_query(uuid2[0])
-clt1.metal_query(uuid2[0], 'hasRef1:text_field_clt2')
 
 
 # ----///////////
@@ -429,56 +389,6 @@ uuid2=str(node_col.l({'fname': 'test__0002'}, False)[0])
 uuid3=str(node_col.l({'fname': 'test__0003'}, False)[0])
 
 
-# metal_query
-## filtering
-## return fields
-
-# metal_load
-## attribute
-## reference
-### two-way reference
-## mix
-
-## manage already exisiting ref
-## resolution
-
-
-# ---------------
-
-# multiple props
-# mix prop and refs
-# mix prop and unresolved refs
-
-self = JeopardyQuestion
-col = JeopardyQuestion
-to_load={'question': 'why?', 'hasCategory': 'Politics'}
-
-uuid=JeopardyQuestion.l(to_load, False)
-
-JeopardyQuestion.l(to_load, True)
-
-
-r=col.q('Politics')
-col.q('Politics')
-
-JeopardyQuestion.q(uuid[0], 'hasCategory:name')
-
-
-JeopardyQuestion.l({'question': 'who?', 'hasCategory': 'Ontology'})
-
-
-
-# simple ref
-# 2 way ref
-# prop with vector / named vector
-# pure ref one way dict
-# pure ref two way dict
-# pure ref array
-# mix prop and resolved refs
-# mix prop and resolved 2 way refs
-# already existing ref
-
-
 
 
 
@@ -493,3 +403,18 @@ search_unique_ref_uuid(JeopardyQuestion, 'Politics')
 r=col.q('politics')
 
 
+
+
+# to be loaded in the deep engine doc
+
+# metal_query
+## filtering
+## return fields
+
+# metal_load
+## attribute
+## reference
+### two-way reference
+## mix
+## manage already exisiting ref
+## resolution
