@@ -509,4 +509,3 @@ roommate.metal.register_opposite('hasProfileAttribute', 'profileAttributeOf')
 
 
 
-

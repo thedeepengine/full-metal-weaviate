@@ -13,15 +13,13 @@ const config = {
   // favicon: 'img/favicon.ico',
 
   // Set the production url of your site here
-  url: 'https://your-docusaurus-site.example.com',
-  // Set the /<baseUrl>/ pathname under which your site is served
-  // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '/',
+  url: 'https://thedeepengine.github.io',
+  baseUrl: '/full-metal-weaviate/',
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'Full Metal Weaviate', // Usually your GitHub org/user name.
-  projectName: 'Full Metal Weaviate', // Usually your repo name.
+  organizationName: 'thedeepengine', // Usually your GitHub org/user name.
+  projectName: 'full-metal-weaviate', // Usually your repo name.
 
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
