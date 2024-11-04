@@ -1,56 +1,59 @@
 ---
-sidebar_position: 4
+sidebar_position: 5
 ---
 
 # Data Sample
 
-Run this in your terminal to get two collections created in your Weaviate env and a couple sample data loaded.
+This is a sample dataset to test against the possibilities of Full Metal Weaviate.
 
-```
+First get your classic Weaviate client
+
+```python
 import weaviate
-client = weaviate.connect_to_local()
-#client.collections.delete('JeopardyQuestion')
-#client.collections.delete('JeopardyCategory')
+weaviate_client = weaviate.connect_to_local()
+```
 
-JeopardyQuestion = client.collections.create(
-    "JeopardyQuestion",
+Running the following will create three collections: Technology, TechnologyProperties and Contributor
+
+```python
+from full_metal_weaviate import get_metal_client
+
+client_metal.collections.delete('Technology')
+client_metal.collections.delete('Contributor')
+client_metal.collections.delete('TechnologyProperties')
+
+Technology = client_metal.collections.create(
+    name="Technology",
     properties=[
-        Property(name="question", data_type=DataType.TEXT),
-        Property(name="response", data_type=DataType.TEXT),
-        Property(name="points", data_type=DataType.NUMBER),
-    ]
+        Property(name="name", data_type=DataType.TEXT, tokenization= Tokenization.FIELD),
+        Property(name="description", data_type=DataType.TEXT),
+        Property(name="github", data_type=DataType.TEXT),
+        Property(name="nb_stars", data_type=DataType.INT),
+        Property(name="release_date", data_type=DataType.DATE),
+        Property(name="number_field", data_type=DataType.NUMBER),
+    ],
+    vectorizer_config=[Configure.NamedVectors.none(name="vect_field")]
 )
 
-JeopardyCategory = client.collections.create(
-    "JeopardyCategory",
+TechnologyProperties = client_metal.collections.create(
+    name="TechnologyProperties",
     properties=[
         Property(name="name", data_type=DataType.TEXT),
-        Property(name="desc", data_type=DataType.TEXT),
+        Property(name="description", data_type=DataType.TEXT)
     ]
 )
 
-# create two-way references
-JeopardyQuestion.config.add_reference(ReferenceProperty(name="hasCategory",target_collection="JeopardyCategory"))
-JeopardyCategory.config.add_reference(ReferenceProperty(name="categoryOf",target_collection="JeopardyQuestion"))
+Contributor = client_metal.collections.create(
+    name="Contributor",
+    properties=[
+        Property(name="name", data_type=DataType.TEXT)
+    ]
+)
 
+Technology.config.add_reference(ReferenceProperty(name="hasProperty",target_collection="TechnologyProperties"))
+TechnologyProperties.config.add_reference(ReferenceProperty(name="propertyOf",target_collection="Technology"))
 
-
-# load some data
-
-metal_client=get_metal_client(client)
-JeopardyQuestion=metal_client.get_metal_collection('JeopardyQuestion')
-JeopardyCategory=metal_client.get_metal_collection('JeopardyCategory')
-
-JeopardyQuestion.metal.register_opposite('hasCategory', 'categoryOf')
-
-JeopardyCategory.l({'name': 'Politics', 'desc': 'politics related questions'}, False)
-JeopardyCategory.l({'name': 'Ontology', 'desc': 'Ontology related questions'}, False)
-
-JeopardyQuestion.l({'question': 'why?', 'hasCategory': 'Politics'})
-JeopardyQuestion.l({'question': 'who?', 'hasCategory': 'Ontology'})
-JeopardyQuestion.l({'question': 'what?', 'hasCategory': 'Ontology'})
-JeopardyQuestion.l({'question': 'what's the meaning of life', 
-'response': '42', 'hasCategory': 'Politics'})
-
-
+Technology.config.add_reference(ReferenceProperty(name="hasContributor",target_collection="Contributor"))
+Contributor.config.add_reference(ReferenceProperty(name="contributorOf",target_collection="Technology"))
 ```
+

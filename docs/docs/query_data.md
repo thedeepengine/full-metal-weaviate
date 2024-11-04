@@ -1,12 +1,12 @@
 ---
-sidebar_position: 2
+sidebar_position: 3
 ---
 
 # Query Data
 
-Querying data can be reduced down to 3 basic operations, any other query can be derived from these.
+Querying data can be reduced down to 3 basic operations, other queries are derived from these 3 building blocks.
 
-To demo that, let's first get the metal collection:
+Let's first get the metal collection:
 
 ```
 JeopardyQuestion = metal_client.get_metal_collection('JeopardyQuestion')
@@ -26,7 +26,7 @@ This is your common & and | operations.
 response = jeopardy.metal_query('question=Double Jeopardy|question=Simple Jeopardy')
 ```
 
-## Reference filtering (aka nested filtering)
+## Reference filtering
 
 This is where you want to filter on a reference field.
 
@@ -34,49 +34,15 @@ This is where you want to filter on a reference field.
 response = jeopardy.metal_query('hasCategory.name=Politics')
 ```
 
-Any other query is built out of these three basic block.
+Any other query is built out of these three basic blocks given some eventual extentions, like in deep reference filtering
 
 
+## Deep Reference filtering
 
+This is where you want to filter on a reference field.
 
-Let's discover **Docusaurus in less than 5 minutes**.
-
-## Getting Started
-
-Get started by **creating a new site**.
-
-Or **try Docusaurus immediately** with **[docusaurus.new](https://docusaurus.new)**.
-
-### What you'll need
-
-- [Node.js](https://nodejs.org/en/download/) version 18.0 or above:
-  - When installing Node.js, you are recommended to check all checkboxes related to dependencies.
-
-## Generate a new site
-
-Generate a new Docusaurus site using the **classic template**.
-
-The classic template will automatically be added to your project after you run the command:
-
-```bash
-npm init docusaurus@latest my-website classic
+```
+response = jeopardy.metal_query('hasProperty.hasCategory.name=Politics')
 ```
 
-You can type this command into Command Prompt, Powershell, Terminal, or any other integrated terminal of your code editor.
-
-The command also installs all necessary dependencies you need to run Docusaurus.
-
-## Start your site
-
-Run the development server:
-
-```bash
-cd my-website
-npm run start
-```
-
-The `cd` command changes the directory you're working with. In order to work with your newly created Docusaurus site, you'll need to navigate the terminal there.
-
-The `npm run start` command builds your website locally and serves it through a development server, ready for you to view at http://localhost:3000/.
-
-Open `docs/intro.md` (this page) and edit some lines: the site **reloads automatically** and displays your changes.
+Nesting can happen at any depth.
