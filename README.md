@@ -4,11 +4,11 @@ High level wrapper for Weaviate: iterate faster while reducing boilerplate.
 
 Full Metal Weaviate propose two basic boilerplate-free intuitive functions:
 
-`.query` and `.load`
+`.metal_query` and `.metal_load` (aliased as `.q` and `.l`)
 
-`.query` makes it easy to query your data using a boilerplate-free syntax.
+`.q` makes it easy to query your data using a boilerplate-free syntax.
 
-`.load` makes it easy to load your data.
+`.l` makes it easy to load your data.
 
 
 It turn this search query:
@@ -59,8 +59,8 @@ questions = client.get_metal_collection("JeopardyQuestion")
 questions.load([name=category_name,"<>hasQuestion",question_obj_uuid])
 ```
 
-Use `<>` operator to create 2 way relationships. 
-The library automatically picks up the registered opposite relationships and create the 2 way refs for you.
+Use `<>` operator to create two-way relationships. 
+The library automatically picks up the registered opposite relationships and create the two-way refs for you.
 
 ## Installation
 
@@ -68,65 +68,7 @@ The library automatically picks up the registered opposite relationships and cre
 pip install git+https://github.com/thedeepengine/full-metal-weaviate.git
 ```
 
-## Usage
-
-### Metal Queries
-
-#### Attribute filtering
-
-```
-# equal
-clt.query('name=Tensorflow')
-
-# like
-clt.query('name~mxnet')
-
-# less than 
-clt.query('github_stars>=10000')
-
-# any
-array_to_filter=['tensorflow', 'mxnet']
-clt.query('name any array_to_filter', array_to_filter)
-```
-
-#### logical filtering
-
-
-```
-# and 
-client.query('github_stars>=10000 & primary_language=python')
-
-# or
-client.query('github_stars>=10000 | primary_language=python')
-```
-
-#### reference filtering (a.k.a nested queries)
-
-- pure nested query: `hasProperty.name ~ flexible`
-- logical and on simple attribute and nested: `name=value & hasProperty.name=value`
-- Deeply nested query: `hasProperty.hasCategory.instanceOf.name~*New*`
-
-### Metal Load
-
-Simple ref loading
-
-```
-
-```
-
-two-way ref loading
-
-```
-
-```
-
-
-
-### Also featured in Full Metal Weaviate
-
-#### Simplified return_references
-
-Specifiying fields to return is also less verbose and reduced to a minimal syntax:
+Along with querying and loading, fmw provide a simplified way to get your returned fields, as its less verbose and reduced to a minimal syntax:
 
 For example:
 
@@ -137,21 +79,9 @@ For example:
 - return field along with deeply nested ref: `name,hasRef1.hasRef3:name)` or `name,hasRef1>(hasRef3:name)`
 - return named vector of reference: `name,hasRef1:name,vector:vector_name`
 
-#### Integrated matching
+#### Unresolved reference
 
 When loading references, you can provide a query rather than a uuid. If the query returns a single item, the reference will be loaded, if not it raises an exception:
-
-```
-questions = client.get_metal_collection("JeopardyQuestion")
-questions.load({from_uuid='name=myquestion',from_property="hasCategory",to='name=category'})
-```
-
-#### Rollback on failure
-
-Sometimes you just want to quickly roll back the last load operation.
-If you load your data using metal_load, if an exception is raised during the loading process and set the parameter rollback to `true`. whats been loaded so far will be deleted.
-
-Also, Full Metal registers N (default to 10) last load operations, so you can see what has been loaded.
 
 ### Disclaimer
 

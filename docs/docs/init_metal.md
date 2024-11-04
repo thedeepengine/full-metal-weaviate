@@ -7,7 +7,7 @@ sidebar_position: 1
 Full Metal Weaviate has been developed for my own work and research. Here is the thing: sometimes you just want to quickly spin up a db, load and query data for testing purposes. And this is the main usage of Full Metal Weaviate; this library is meant to be used to quickly poke around with Weaviate.
 
 :::warning
-Full Metal Weaviate is in alpha and under active development. It is absolutely not recommended for production use as it may contain bugs, incomplete features, and can undergo significant changes. Use at your own risk.
+Full Metal Weaviate is under active development. It is not recommended for production use as it may contain bugs, incomplete features, and can undergo significant changes. Use at your own risk.
 :::
 
 ## Installation
