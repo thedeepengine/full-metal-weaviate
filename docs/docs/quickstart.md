@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Quickstart
 
-If you want to quickly test the possibilities of fmw:
+Full Metal Weaviate allows you to use a minimalistic syntax to query and load data into Weaviate.
 
 ## Installation
 
@@ -12,7 +12,9 @@ If you want to quickly test the possibilities of fmw:
 pip install git+https://github.com/thedeepengine/full-metal-weaviate.git
 ```
 
-## Test with sample data:
+You can either load some [sample data](#test-with-sample-data) and test on this or directly [query your own data](#query-on-your-collection):
+
+## Test with sample data
 
 Running the function `sample_data` will create 3 collections to poke around with:
 
@@ -20,23 +22,23 @@ Running the function `sample_data` will create 3 collections to poke around with
 ```python
 from full_metal_weaviate import sample_data, get_metal_client
 
-client_weaviate=<your weaviate client>
+client_weaviate = <your weaviate client>
 
-# create collections and load sample data
+# this will create collections and load sample data
 sample_data(client_weaviate)
 
 # get metal client and collections
-client_metal=get_metal_client(client_weaviate)
-Technology=client_metal.get_metal_collection('Technology')
-TechnologyProperty=client_metal.get_metal_collection('TechnologyProperty')
-Contributor=client_metal.get_metal_collection('Contributor')
+client_metal = get_metal_client(client_weaviate)
+Technology = client_metal.get_metal_collection('Technology')
+TechnologyProperty = client_metal.get_metal_collection('TechnologyProperty')
+Contributor = client_metal.get_metal_collection('Contributor')
 ```
 
-Starts querying with a simple syntax:
+Start querying with a simple syntax:
 
 ```
 # Filter on tech with name weaviate
-Technology.metal_query('name=weaviate')
+Technology.metal_query('name = weaviate')
 ```
 
 <details>
@@ -55,9 +57,12 @@ Technology.metal_query('name=weaviate')
 
 # Return the properties and refs you want 
 
-Filter on tech with name weaviate and returns only the name attribute and hasProperty name reference
+Filter on tech with name weaviate and returns only the name attribute and hasProperty name reference.
+
+First parameter is the filtering, second parameter the return field.
+
 ```python
-Technology.metal_query('name=weaviate', 'name,hasProperty:name')
+Technology.metal_query('name = weaviate','name,hasProperty:name')
 ```
 
 The equivalent in classic graphql syntax would be:
@@ -88,15 +93,15 @@ The equivalent in classic graphql syntax would be:
 Here you filter on a deeply nested reference just using dot notation:
 
 ```
-Technology.q('hasProperty.hasCategory.name = adaptability', 'name,hasProperty.hasCategory:name')
+Technology.q('hasProperty.hasCategory.name  =  adaptability', 'name,hasProperty.hasCategory:name')
 ```
 Weaviate equivalent:
 
 ```
 Technology.query.fetch_objects(
-    filters=Filter.by_ref(link_on="hasProperty").by_ref(link_on="hasCategory").by_property("name").equal("adaptability"),
-    return_properties='name',
-    return_references=QueryReference(link_on="hasProperty", return_properties=["name"])
+    filters = Filter.by_ref(link_on = "hasProperty").by_ref(link_on = "hasCategory").by_property("name").equal("adaptability"),
+    return_properties = 'name',
+    return_references = QueryReference(link_on = "hasProperty", return_properties = ["name"])
 )
 ```
 
@@ -134,16 +139,18 @@ Technology.query.fetch_objects(
 </details>
 
 
-## Test on your own collection:
+## Query on your collection
 
 ```python
 import weaviate
 from full_metal_weaviate import get_metal_client
 
-
-metal_client = get_metal_client(<your_weaviate_client>)
+metal_client = get_metal_client('<your_weaviate_client>')
 collection_name = metal_client.get_metal_collection('<your_collection_name>')
 
-collection_name.metal_query('<field=value>')
+# simple attribute filtering
+collection_name.metal_query('<field = value>')
 ```
+
+Refer to **[query](query_data.md)** and **[load](load_data.md)** documentation for full syntax and loading options.
 

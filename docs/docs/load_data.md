@@ -4,33 +4,32 @@ sidebar_position: 4
 
 # Load data
 
-The loading part of this library is not the most useful one execpted maybe for the two-way reference loading.
+:::info
+The loading part of this library is not the most useful one excepted maybe for the two-way reference loading. Use a simple operator to upload two-way references.
+:::
+
 
 Get your metal client and some collections:
 
-```
+```python
 client_weaviate=<your weaviate client>
 
-# if you havent yet created the sample testing dataset run:
+# if you haven't yet created the sample testing dataset run:
 # sample_data(client_weaviate)
 
 # get metal client and collections
 client_metal=get_metal_client(client_weaviate)
-Technology=client_metal.get_metal_collection('Technology')
-TechnologyProperty=client_metal.get_metal_collection('TechnologyProperty')
-Contributor=client_metal.get_metal_collection('Contributor')
+technology=client_metal.get_metal_collection('Technology')
+technology_property=client_metal.get_metal_collection('technology_property')
+contributor=client_metal.get_metal_collection('Contributor')
 ```
 ## Load simple attribute
 
 Provide as parameter a dict or a list of dict
 
 ```python
-to_load = {'name': 'Chroma'}
-# provide a list of object to load
-# to_load = [{'name': 'Chroma'},{'name': 'Qdrant'}]
-
-Technology=client_metal.get_metal_collection('Technology')
-uuid=Technology.metal_load(to_load, False)
+technology=client_metal.get_metal_collection('Technology')
+uuid=technology.metal_load({'name': 'Chroma'}, False)
 ```
 
 <details>
@@ -40,6 +39,14 @@ uuid=Technology.metal_load(to_load, False)
 ```
 </details>
 
+Or provide multiple objects to load:
+
+```python
+to_load = [{'name': 'Chroma'},{'name': 'Qdrant'}]
+technology=client_metal.get_metal_collection('Technology')
+uuid=technology.metal_load(to_load, False)
+```
+
 ## Load simple attributes and references
 
 Provide a dict with the fields and values, again you can provide a list of objects to load multiples objects, you'd have a list of uuids returned:
@@ -47,12 +54,12 @@ Provide a dict with the fields and values, again you can provide a list of objec
 ```python
 to_load=[{'question': 'who?', 'hasCategory': uuid}]
 
-TechnologyProperty=client_metal.get_metal_collection('TechnologyProperty')
-uuid_target=TechnologyProperty.metal_load({'name': 'Hybrid Search'}, False)
+technology_property=client_metal.get_metal_collection('technology_property')
+uuid_target=technology_property.metal_load({'name': 'Hybrid Search'}, False)
 
 to_load={'question': 'who?', 'hasProperty': uuid_target}
 
-Technology.metal_load(to_load, False)
+technology.metal_load(to_load, False)
 ```
 
 You can collapse this previous load into something more condensed if your target uuid already exist and you have a query that uniquely identify it. 
@@ -62,65 +69,77 @@ Rather than first fetching the uuid and then loading your ref, you can directly 
 
 ```python
 to_load={'question': 'who?', 'hasProperty': 'name=Hybrid Search'}
-Technology.metal_load(to_load, False)
+technology.metal_load(to_load, False)
 ```
 
 `'name=Hybrid Search'` is metal query syntax, look at **[query](query_data.md)** if you're not familiar yet with the query syntax.
 
-The system woudl resolve the query to a uuid, if there is a unique match, the object is loaded, if there is more than one match, an exception is raised, asking you to resolve the reference yourself.
+The system resolves the query to a uuid, if there is a unique match, the object is loaded, if there is more than one match, an exception is raised, asking you to resolve the reference yourself.
 
-I am using it a lot when I have normalised data, most likely on tokenized field as it highly reduces the risks of multiples uuids matching.
+I am using it a lot when I have normalised data or data with unique ids, most likely on tokenized field as it highly reduces the risks of multiples uuids matching.
 
 ## Load pure reference
 
 if you want to load one or more references between objects:
 You can use two syntax, array and object
-- as an array provide each ref as an araray of 3 values, from_uuid, from_property and to `[['<uuid>', '<hasRef>', '<uuid>'], ['<uuid>', '<hasRef>', '<uuid>'], ...]`
+- as an array provide each ref as an array of 3 values, from_uuid, from_property and to `[['<uuid>', '<hasRef>', '<uuid>'], ['<uuid>', '<hasRef>', '<uuid>'], ...]`
 - as dict provide for each ref an object like: `[{from_uuid:<uuid>, from_property: '<hasRef>',to:<uuid>}, {from_uuid:<uuid>, from_property: '<hasRef>',to:<uuid>}, ...]`
 
 In this example, we use an unresolved uuid for the source and we provide directly a uuid for the target.
 
 ```python
-uuid_target=TechnologyProperty.metal_load({'name': 'Replica Consistency'}, False)
-Technology.metal_load(['name=weaviate', 'hasProperty', uuid_target[0]], False)
+uuid_target=technology_property.metal_load({'name': 'Replica Consistency'}, False)
+technology.metal_load(['name=weaviate', 'hasProperty', uuid_target[0]], False)
 ```
 
 Check the results:
 
 ```python
-Technology.q('name=weaviate', 'hasProperty:name')
+technology.q('name=weaviate', 'hasProperty:name')
 ```
 
 ## Load two-way reference
 
-### when loading an object
+:::info
+Loading two-way ref requires to first register opposite relationships using
+`register_opposite` method on your collection.  
+Ex: Technology.metal.register_opposite('hasProperty', 'propertyOf')
+More details: **[Register opposite relationships](init_metal.md#register-opposite-relationships)** 
+:::
+
+
+### When Loading an Object
 
 Use the operator `<>` to load a two-way reference.
 
+**Syntax**: `{'<>reference_name': <uuid>}`
+
 ```python
-uuid_target=TechnologyProperty.metal_load({'name': 'Sorted Set'}, False)
+uuid_target=technology_property.metal_load({'name': 'Sorted Set'}, False)
 to_load=[{'name': 'redis', '<>hasProperty': uuid_target}]
-uuid=Technology.metal_load(to_load, False)
+uuid=technology.metal_load(to_load, False)
 ```
 
-This would like 2 references:
+This would load 2 references:
 `redis hasProperty Sorted Set` and `Sorted Set propertyOf redis`
 
-### when loading pure reference
+### When Loading Pure Reference
+
+**Syntax**: `[<uuid>, '<>ref_name', <uuid>]` or `{from_uuid:<uuid>, from_property: '<>ref_name',to:<uuid>}`
 
 ```python
-uuid_source=Technology.metal_load({'name': 'LlamaIndex'}, False)
-uuid_target=TechnologyProperty.metal_load({'name': 'Framework'}, False)
-Technology.metal_load([uuid_source[0], '<>hasProperty', uuid_target[0]], False)
+uuid_source=technology.metal_load({'name': 'LlamaIndex'}, False)
+uuid_target=technology_property.metal_load({'name': 'Framework'}, False)
+technology.metal_load([uuid_source[0], '<>hasProperty', uuid_target[0]], False)
 ```
 
 ## Update already existing object
 
-Provide the uuid of the objec to update along with the attributes and refs to load:
+Provide the uuid of the object to update along with the attributes and refs to load:
 
 ```python
-milvus=Technology.q('name=milvus')
+milvus=technology.q('name=milvus')
 uuid_milvus = milvus[0]['uuid']
-Technology.metal_load({'uuid': uuid_milvus, 'description': 'open-source vector databse'}, False)
+technology.metal_load({'uuid': uuid_milvus, 'description': 'open-source vector database'}, False)
 ```
 

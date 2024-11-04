@@ -507,58 +507,6 @@ self=roommate
 col=roommate
 roommate.metal.register_opposite('hasProfileAttribute', 'profileAttributeOf')
 
-to_load = {'uuid': '5cff1941-39ef-41c3-860c-9f0ae4a73cf5',
- '<>hasProfileAttribute': ['19a5ee27-4733-46be-9e21-a9ad0422180e',
-  '4548ab99-9ec1-4627-9709-da3184f10f7d',
-  '57efad66-fb9e-4e89-8a92-846875c9148d',
-  '5e3c88d6-bb31-4183-95d9-57048e045c0b',
-  '6b42a81a-81e6-4c4c-bc4b-12c3edfe159a',
-  'a841e6db-bd44-4bb7-9f2f-58d089da7e06',
-  'bcb46735-2568-45e2-9028-114ab6adc10b',
-  'e7acddef-0822-44f3-a45b-3d51e63852fc',
-  'e8c881a1-ec58-48e6-946f-3c131d70ad34']}
-
-to_update= {'uuid': '5cff1941-39ef-41c3-860c-9f0ae4a73cf5',
- '<>hasProfileAttribute': ['19a5ee27-4733-46be-9e21-a9ad0422180e',
-  '4548ab99-9ec1-4627-9709-da3184f10f7d',
-  '57efad66-fb9e-4e89-8a92-846875c9148d',
-  '5e3c88d6-bb31-4183-95d9-57048e045c0b',
-  '6b42a81a-81e6-4c4c-bc4b-12c3edfe159a',
-  'a841e6db-bd44-4bb7-9f2f-58d089da7e06',
-  'bcb46735-2568-45e2-9028-114ab6adc10b',
-  'e7acddef-0822-44f3-a45b-3d51e63852fc',
-  'e8c881a1-ec58-48e6-946f-3c131d70ad34']}
 
 
-to_update= {'uuid': '5cff1941-39ef-41c3-860c-9f0ae4a73cf5',
- 'references': {'hasProfileAttribute': ['19a5ee27-4733-46be-9e21-a9ad0422180e',
-   '4548ab99-9ec1-4627-9709-da3184f10f7d',
-   '57efad66-fb9e-4e89-8a92-846875c9148d',
-   '5e3c88d6-bb31-4183-95d9-57048e045c0b',
-   '6b42a81a-81e6-4c4c-bc4b-12c3edfe159a',
-   'a841e6db-bd44-4bb7-9f2f-58d089da7e06',
-   'bcb46735-2568-45e2-9028-114ab6adc10b',
-   'e7acddef-0822-44f3-a45b-3d51e63852fc',
-   'e8c881a1-ec58-48e6-946f-3c131d70ad34']}}
-
-
-col.data.update(uuid='5cff1941-39ef-41c3-860c-9f0ae4a73cf5',
-                references={'hasProfileAttribute': 'dd'})
-
-
-col.q('5cff1941-39ef-41c3-860c-9f0ae4a73cf5')
-
-
-to_load = {'uuid': '5cff1941-39ef-41c3-860c-9f0ae4a73cf5',
- '<>hasProfileAttribute': ['19a5ee27-4733-46be-9e21-a9ad0422180e',
-  '4548ab99-9ec1-4627-9709-da3184f10f7d',
-  '57efad66-fb9e-4e89-8a92-846875c9148d',
-  '5e3c88d6-bb31-4183-95d9-57048e045c0b',
-  '6b42a81a-81e6-4c4c-bc4b-12c3edfe159a',
-  'a841e6db-bd44-4bb7-9f2f-58d089da7e06',
-  'bcb46735-2568-45e2-9028-114ab6adc10b',
-  'e7acddef-0822-44f3-a45b-3d51e63852fc',
-  'e8c881a1-ec58-48e6-946f-3c131d70ad34']}
-
-roommate_uuid=roommate.l(to_load, False)
 
