@@ -15,12 +15,11 @@ setup(
                       'rich>=13.0.0, <14.0.0',
                       'jmespath>=1.0.0, <2.0.0',
                       'pandas>=2.0.3, <3.0.0',
+                      'bottleneck>=1.4.0',
                       'full-metal-monad @ git+https://github.com/thedeepengine/full-metal-monad.git'],
     extras_require={
         'dev': [
-            'ipython>=8.18.1',
             'mock>=5.1.0',
-            'pipdeptree>=2.23.3',
             'sphinx>=7.4.7',
             'wheel',
             'twine'
