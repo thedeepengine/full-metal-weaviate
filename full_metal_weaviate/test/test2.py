@@ -1,9 +1,10 @@
 import os
 import unittest
 import copy
+import weaviate
 import weaviate.classes as wvc
 from weaviate.classes.config import Property, DataType, ReferenceProperty, Configure, Tokenization
-from main import get_metal_client
+from main import get_metal_client, get_weaviate_client
 from weaviate import WeaviateClient
 from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
@@ -13,78 +14,153 @@ from weaviate_op import get_filter_compiler, parse_filter, get_return_field_comp
 from utils import FMWParseFilterException, MetalClientException
 from pyparsing import ParseException
 
-def get_weaviate_client():
-    weaviate_host = os.getenv('WEAVIATE_HTTP_HOST', 'localhost')
-    # client_weaviate=get_metal_client(weaviate_host, opposite_refs)
+from utils import console
 
-    api_key_weaviate = os.getenv('WEAVIATE_API_KEY')
-    weaviate_client = WeaviateClient(
-    connection_params=ConnectionParams.from_params(
-        http_host=weaviate_host,
-        http_port="8080",
-        http_secure=False,
-        grpc_host=weaviate_host,
-        grpc_port="50051",
-        grpc_secure=False,
-    ),
-    auth_client_secret=AuthApiKey(api_key_weaviate))
+TECH_CLT = 'Technology'
+CONTRIB_CLT = 'Contributor'
+TECH_PROP_CLT = 'TechnologyProperty'
+PROP_CATEGORY_CLT = 'PropertyCategory'
 
-    weaviate_client.connect()
-    return weaviate_client
-
-client_weaviate=get_weaviate_client()
-
+client_weaviate.close()
+del client_weaviate
+client_weaviate=get_weaviate_client(True)
 client_metal=get_metal_client(client_weaviate)
-clt1=client_metal.get_metal_collection('Clt1')
-clt2=client_metal.get_metal_collection('clt2')
-
+Technology=client_metal.get_metal_collection(TECH_CLT)
+TechnologyProperty=client_metal.get_metal_collection(TECH_PROP_CLT)
+PropertyCategory=client_metal.get_metal_collection(PROP_CATEGORY_CLT)
+Contributor=client_metal.get_metal_collection(CONTRIB_CLT)
 
 ########################################
 ## create collection
 ########################################
 
-client_metal.collections.delete('clt1')
-client_metal.collections.delete('clt2')
+def delete_sample_data(client):
+    client.collections.delete(TECH_CLT)
+    client.collections.delete(CONTRIB_CLT)
+    client.collections.delete(TECH_PROP_CLT)
+    client.collections.delete(PROP_CATEGORY_CLT)
 
-clt1 = client_metal.collections.create(
-    name="Clt1",
-    properties=[
-        Property(name="text_field", data_type=DataType.TEXT),
-        Property(name="int_field", data_type=DataType.INT),
-        Property(name="date_field", data_type=DataType.DATE),
-        Property(name="float_field", data_type=DataType.DATE),
-        Property(name="field_tokenized_field", data_type=DataType.TEXT, tokenization= Tokenization.FIELD, description="field tokenized"),
-    ],
-    vectorizer_config=[Configure.NamedVectors.none(name="vect_field")]
-)
+def create_sample_collection(client, 
+                tech_clt=TECH_CLT, 
+                contrib_clt=CONTRIB_CLT, 
+                tech_prop_clt=TECH_PROP_CLT,
+                prop_category_clt=PROP_CATEGORY_CLT):
+    clt_names=[tech_clt, contrib_clt, tech_prop_clt, prop_category_clt]
+    existing_clt = [i for i in clt_names 
+                     if client_weaviate.collections.exists(i)]
+    if existing_clt:
+        print(f'Warning: Collections {existing_clt} already exist. Delete or change sample data collection name parameters name')
+        return
+         
+    Technology = client.collections.create(
+        name=tech_clt,
+        properties=[
+            Property(name="name", data_type=DataType.TEXT, tokenization= Tokenization.FIELD),
+            Property(name="description", data_type=DataType.TEXT),
+            Property(name="github", data_type=DataType.TEXT),
+            Property(name="nb_stars", data_type=DataType.INT),
+            Property(name="release_date", data_type=DataType.DATE),
+            Property(name="number_field", data_type=DataType.NUMBER),
+        ],
+        vectorizer_config=[Configure.NamedVectors.none(name="vect_field")]
+    )
 
-clt2 = client_metal.collections.create(
-    name="Clt2",
-    properties=[
-        Property(name="text_field_clt2", data_type=DataType.TEXT)
-    ]
-)
+    TechnologyProperty = client.collections.create(
+        name=tech_prop_clt,
+        properties=[
+            Property(name="name", data_type=DataType.TEXT),
+            Property(name="description", data_type=DataType.TEXT)
+        ]
+    )
 
-clt1.config.add_reference(ReferenceProperty(name="hasRef1",target_collection="clt2"))
-clt2.config.add_reference(ReferenceProperty(name="refOf1",target_collection="clt1"))
+    PropertyCategory = client.collections.create(
+        name=prop_category_clt,
+        properties=[
+            Property(name="name", data_type=DataType.TEXT),
+            Property(name="description", data_type=DataType.TEXT),
+            Property(name="coolness", data_type=DataType.TEXT_ARRAY)
+        ]
+    )
 
-clt1.config.add_reference(ReferenceProperty(name="hasRef2",target_collection="clt2"))
-clt2.config.add_reference(ReferenceProperty(name="refOf2",target_collection="clt1"))
+    Contributor = client.collections.create(
+        name=contrib_clt,
+        properties=[
+            Property(name="name", data_type=DataType.TEXT)
+        ]
+    )
+
+    Technology.config.add_reference(ReferenceProperty(name="hasProperty",target_collection=tech_prop_clt))
+    TechnologyProperty.config.add_reference(ReferenceProperty(name="propertyOf",target_collection=tech_clt))
+
+    Technology.config.add_reference(ReferenceProperty(name="hasContributor",target_collection=contrib_clt))
+    Contributor.config.add_reference(ReferenceProperty(name="contributorOf",target_collection=tech_clt))
+
+    TechnologyProperty.config.add_reference(ReferenceProperty(name="hasCategory",target_collection=prop_category_clt))
+    PropertyCategory.config.add_reference(ReferenceProperty(name="categoryOf",target_collection=tech_prop_clt))
+
+    existing_clt = all([client_weaviate.collections.exists(i) for i in clt_names])
+    if existing_clt:
+        console.print(f'[info]Sample collections created')
+        return True
+    else:
+        console.print(f'[error]Sample Collections not created')
+        return False
 
 
+def sample_data(client):
+    created=create_sample_collection(client)
+    if created:
+        metal_client=get_metal_client(client)
+        load_sample_data(metal_client)
 
 ##################################################
-############ get_collection 
+############ get_collection
 ##################################################
 
-client.close()
-client = weaviate.connect_to_local()
-metal_client=get_metal_client(client)
-clt1=metal_client.get_metal_collection('clt1')
-clt2=metal_client.get_metal_collection('clt2')
+def load_sample_data(metal_client):
+    Technology=metal_client.get_metal_collection(TECH_CLT)
+    TechnologyProperty=metal_client.get_metal_collection(TECH_PROP_CLT)
+    TechnologyCategory=metal_client.get_metal_collection(PROP_CATEGORY_CLT)
+    Contributor=metal_client.get_metal_collection(CONTRIB_CLT)
 
-clt1.metal.register_opposite('hasRef1', 'refOf1')
-clt1.metal.register_opposite('hasRef2', 'refOf2')
+    Technology.metal.register_opposite('hasProperty', 'propertyOf')
+    Technology.metal.register_opposite('hasContributor', 'contributorOf')
+    TechnologyCategory.metal.register_opposite('categoryOf', 'hasCategory')
+    
+    TechnologyProperty.l([{'name': 'PQ', 
+                            'description': 'Product Quantization Reduces index footprint'},
+                            {'name': 'Flat Index', 
+                            'description': 'Lightweight index that is designed for small datasets'},
+                            {'name': 'HNSW', 
+                            'description': 'Index that scales well to large datasets'},
+                            {'name': 'Dynamic Index', 
+                            'description': 'Automatically switch from a flat index to an HNSW index'},
+                            {'name': 'Annoy', 
+                            'description': 'Approximate Nearest Neighbors Oh Yeah, uses random forest, ideal for large datasets'},
+                            {'name': 'IVF', 
+                            'description': 'partitions data into clusters and creates an inverted index for efficient nearest neighbor search'},
+                            {'name': 'LSH', 
+                            'description': 'Locality-Sensitive Hashing, hashes high-dimensional data points into buckets'}], False)
+
+    Contributor.l([{'name': 'dirkkul'},{'name': 'tsmith023'}], False)
+
+
+    TechnologyCategory.l([{'name': 'performance', '<>categoryOf':['name=HNSW']},
+                          {'name': 'efficiency', '<>categoryOf':['name=PQ', 'name=Annoy', 'name=IVF']},
+                          {'name': 'adaptability', '<>categoryOf': ['name=Dynamic Index']},
+                          {'name': 'accuracy', '<>categoryOf': ['name=Flat Index']}], 
+                          False)
+
+    Technology.l([{'name':'weaviate',
+                    '<>hasProperty': ['name=HNSW', 'name=Dynamic Index', 'name=PQ', 'name=Flat Index'],
+                    'hasContributor': ['name=dirkkul', 'name=tsmith023']}, 
+                    {'name': 'pinecone',
+                    '<>hasProperty': ['name=HNSW', 'name=PQ', 'name=Annoy']}, 
+                    {'name':'milvus',
+                    '<>hasProperty': ['name=HNSW', 'name=PQ', 'name=Annoy']},
+                    {'name':'faiss',
+                    '<>hasProperty': ['name=HNSW', 'name=IVF', 'name=PQ', 'name=LSH']}], False)
+    console.print(f'[info]Sample data loaded')
 
 ##################################################
 ############ parse_filter
@@ -252,93 +328,96 @@ tested=record_get_weaviate_return_fields(to_test)
 ############ metal_load
 #############################################
 
-# load simple attribute
-
+#! load simple attribute
 to_load=[{'text_field': 'test'}]
-uuid=clt1.metal_load(to_load, False)
-clt1.metal_query(uuid[0])
+uuid=Technology.metal_load(to_load, False)
+Technology.metal_query(uuid[0])
 
 
-# load mix attributes and references
+#! load mix attributes and references
+uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__0001'}, False)[0]
+uuid1=Technology.metal_load({'text_field': 'w1','hasProperty': uuid_target}, False)
 
-uuid_target=clt2.metal_load({'text_field_clt2': 'test__0001'}, False)[0]
-uuid1=clt1.metal_load({'text_field': 'w1','hasRef1': uuid_target}, False)
+Technology.metal_query(uuid1[0])
+Technology.metal_query(uuid1[0], 'hasProperty:text_field_clt2')
 
-clt1.metal_query(uuid1[0])
-clt1.metal_query(uuid1[0], 'hasRef1:text_field_clt2')
 
+#! load mix attributes and multiple references
+uuid_target1=TechnologyProperty.metal_load({'text_field_clt2': 'test__0001'}, False)[0]
+uuid_target2=TechnologyProperty.metal_load({'text_field_clt2': 'test__0001'}, False)[0]
+uuid1=Technology.metal_load({'text_field': 'w1','hasProperty': [uuid_target1, uuid_target2]}, False)
+
+Technology.metal_query(uuid1[0])
+Technology.metal_query(uuid1[0], 'hasProperty:text_field_clt2')
 
 # load pure references
 
 ## using array format
-uuid_source=str(clt1.metal_load({'text_field': 'test__0001'}, False)[0])
-uuid_target=clt2.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
+uuid_source=str(Technology.metal_load({'text_field': 'test__0001'}, False)[0])
+uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
 
-to_load=[[uuid_source,'hasRef1',uuid_target]]
-clt1.l(to_load, False)
+to_load=[[uuid_source,'hasProperty',uuid_target]]
+Technology.l(to_load, False)
 
-clt1.q(uuid_source, 'hasRef1:text_field_clt2')
+Technology.q(uuid_source, 'hasProperty:text_field_clt2')
 
 ## using dict format
-uuid_source=str(clt1.metal_load({'text_field': 'test__0001'}, False)[0])
-uuid_target=clt2.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
+uuid_source=str(Technology.metal_load({'text_field': 'test__0001'}, False)[0])
+uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
 
-to_load=[{'from_uuid': uuid_source, 'from_property':'hasRef1', 'to':uuid_target}]
-clt1.l(to_load, False)
+to_load=[{'from_uuid': uuid_source, 'from_property':'hasProperty', 'to':uuid_target}]
+Technology.l(to_load, False)
 
-clt1.q(uuid_source, 'hasRef1:text_field_clt2')
+Technology.q(uuid_source, 'hasProperty:text_field_clt2')
 
 ## load 2 way references
-uuid_source=clt1.metal_load({'text_field': 'test__0001'}, False)[0]
-uuid_target=clt2.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
-to_load=[{'from_uuid': uuid_source, 'from_property':'<>hasRef1', 'to':uuid_target}]
+uuid_source=Technology.metal_load({'text_field': 'test__0001'}, False)[0]
+uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
+to_load=[{'from_uuid': uuid_source, 'from_property':'<>hasProperty', 'to':uuid_target}]
 
-clt1.l(to_load, False)
+Technology.l(to_load, False)
 
-clt1.q(uuid_source, 'hasRef1:text_field')
-clt2.q(uuid_target, 'refOf1:text_field')
+Technology.q(uuid_source, 'hasProperty:text_field')
+TechnologyProperty.q(uuid_target, 'propertyOf:text_field')
 
 # load unresolved refs
+
+## for mix ref
+uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__123456'}, False)[0]
+
+uuid_source=Technology.metal_load({'text_field': 'w1',
+                       'hasProperty': 'text_field_clt2=test__123456'}, False)
+
+Technology.q(uuid_source, 'propertyOf:text_field')
+
+## for mix ref with multiple unresolved refs
+uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__123456'}, False)[0]
+uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__891'}, False)[0]
+
+uuid_source=Technology.metal_load({'text_field': 'w1',
+                       'hasProperty': ['text_field_clt2=test__123456', 'text_field_clt2=test__891']}, False)
+
+Technology.q(uuid_source, 'propertyOf:text_field')
+
 ## for pure refeference
-uuid_source=clt1.metal_load({'text_field': 'test__0001'}, False)[0]
-uuid_target=clt2.metal_load({'text_field_clt2': 'test__pure_ref'}, False)[0]
+uuid_source=Technology.metal_load({'text_field': 'test__0001'}, False)[0]
+uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__pure_ref'}, False)[0]
 
 q='text_field_clt2=test__pure_ref'
 
-to_load=[{'from_uuid': uuid_source, 'from_property':'<>hasRef1', 'to': q}]
+to_load=[{'from_uuid': uuid_source, 'from_property':'<>hasProperty', 'to': q}]
 
-clt1.l(to_load, False)
+Technology.l(to_load, False)
 
-clt1.q(uuid_source, 'hasRef1:text_field_clt2')
-clt2.q(uuid_target, 'refOf1:text_field')
+Technology.q(uuid_source, 'hasProperty:text_field_clt2')
+TechnologyProperty.q(uuid_target, 'propertyOf:text_field')
 
 
-clt1.q(uuid_target, 'refOf1:text_field')
+Technology.q(uuid_target, 'propertyOf:text_field')
 
-## for mix ref
-uuid_target=clt2.metal_load({'text_field_clt2': 'test__123456'}, False)[0]
-
-uuid_source=clt1.metal_load({'text_field': 'w1',
-                       'hasRef1': 'text_field_clt2=test__123456'}, False)
-
-clt1.q(uuid_source, 'refOf1:text_field')
-
-get_translate_filter(clt1, 'text_field=test__123456')
-
-clt1.q(uuid1[0])
-
-metal_query(clt1,uuid1[0])
-
-clt1.q(uuid1[0])
-
-# prop with vector / named vector
-# pure ref one way dict
-# pure ref two way dict
-# pure ref array
-# mix prop and resolved refs
-# mix prop and resolved 2 way refs
-# already existing ref
-
+## update edge case
+# saw issues if value to load is UUID type for pure uuid
+# if array or not search: if obj.get(key) is not None and len(obj.get(key))>0}
 
 #############################################
 ############ Metal Administration
@@ -366,45 +445,6 @@ JeopardyQuestion.metal.register_opposite('hasAssociatedQuestion', 'associatedQue
 JeopardyQuestion.metal.get_opposite('hasCategory')
 
 
-# ----///////////
-client_metal=get_metal_client(client_weaviate)
-clt1=client_metal.get_metal_collection('Clt1')
-clt2=client_metal.get_metal_collection('clt2')
-
-
-
-self=clt1
-filters_str='text_field~*'
-return_fields='hasRef1'
-return_fields='hasRef1:text_field_clt2'
-clt1.metal_query(uuid2[0], 'hasRef1')
-clt1.metal_query(filters_str, return_fields)
-
-
-clt1.metal_load({'question': 'who?'})
-
-
-
-uuid2=str(node_col.l({'fname': 'test__0002'}, False)[0])
-uuid3=str(node_col.l({'fname': 'test__0003'}, False)[0])
-
-
-
-
-
-client = weaviate.connect_to_local()
-metal_client=get_metal_client(client)
-JeopardyQuestion=metal_client.get_metal_collection('JeopardyQuestion')
-JeopardyCategory=metal_client.get_metal_collection('JeopardyCategory')
-
-
-search_unique_ref_uuid(JeopardyQuestion, 'Politics')
-
-r=col.q('politics')
-
-
-
-
 # to be loaded in the deep engine doc
 
 # metal_query
@@ -418,3 +458,107 @@ r=col.q('politics')
 ## mix
 ## manage already exisiting ref
 ## resolution
+
+bed= metal_client.get_metal_collection('Bed')
+calendar= metal_client.get_metal_collection('Calendar')
+bed.metal.register_opposite('hasCalendar', 'calendarOf')
+self=bed
+col=bed
+bed.q(filters_str='hasCalendar.status=Available')
+
+calendar.q(return_fields='status')
+
+unit= metal_client.get_metal_collection('Unit')
+unit.metal.register_opposite('hasBed', 'bedOf')
+
+unit.l({'uuid': '8fdbec00-f37c-401a-8cd3-6717b1409013', 
+        'hasBed': '02cd0356-5ccb-4a1c-8ebc-4a47204147ea'}, False)
+
+
+def get_
+col.metal.context[]
+col.metal.context['ref_target']['Bed']
+col.metal.get_opposite('hasCalendar')
+
+a=get_opposite(col.metal, 'hasCalendar', True)
+
+
+
+col.metal.context['fields'][last_clt]['properties']
+get_opposite(col.metal, 'hasCalendar', True)
+
+to_load={'roommate_id': 'B',
+ 'gender': 'Female',
+ 'school': 'SDSU, Campanile Dr, San Diego, CA, USA',
+ 'hasProfileAttributes': '126e8c04-d146-45cb-b797-3c6225360977'}
+
+
+uuid=self.l(
+{'roommate_id': 'B',
+ 'gender': 'Female',
+ 'school': 'SDSU, Campanile Dr, San Diego, CA, USA',
+ 'hasProfileAttributes': '126e8c04-d146-45cb-b797-3c6225360977'}, False)
+
+self.q(uuid[0], 'roommate_id,hasProfileAttributes:category')
+
+
+roommate= metal_client.get_metal_collection('Roommate')
+self=roommate
+col=roommate
+roommate.metal.register_opposite('hasProfileAttribute', 'profileAttributeOf')
+
+to_load = {'uuid': '5cff1941-39ef-41c3-860c-9f0ae4a73cf5',
+ '<>hasProfileAttribute': ['19a5ee27-4733-46be-9e21-a9ad0422180e',
+  '4548ab99-9ec1-4627-9709-da3184f10f7d',
+  '57efad66-fb9e-4e89-8a92-846875c9148d',
+  '5e3c88d6-bb31-4183-95d9-57048e045c0b',
+  '6b42a81a-81e6-4c4c-bc4b-12c3edfe159a',
+  'a841e6db-bd44-4bb7-9f2f-58d089da7e06',
+  'bcb46735-2568-45e2-9028-114ab6adc10b',
+  'e7acddef-0822-44f3-a45b-3d51e63852fc',
+  'e8c881a1-ec58-48e6-946f-3c131d70ad34']}
+
+to_update= {'uuid': '5cff1941-39ef-41c3-860c-9f0ae4a73cf5',
+ '<>hasProfileAttribute': ['19a5ee27-4733-46be-9e21-a9ad0422180e',
+  '4548ab99-9ec1-4627-9709-da3184f10f7d',
+  '57efad66-fb9e-4e89-8a92-846875c9148d',
+  '5e3c88d6-bb31-4183-95d9-57048e045c0b',
+  '6b42a81a-81e6-4c4c-bc4b-12c3edfe159a',
+  'a841e6db-bd44-4bb7-9f2f-58d089da7e06',
+  'bcb46735-2568-45e2-9028-114ab6adc10b',
+  'e7acddef-0822-44f3-a45b-3d51e63852fc',
+  'e8c881a1-ec58-48e6-946f-3c131d70ad34']}
+
+
+to_update= {'uuid': '5cff1941-39ef-41c3-860c-9f0ae4a73cf5',
+ 'references': {'hasProfileAttribute': ['19a5ee27-4733-46be-9e21-a9ad0422180e',
+   '4548ab99-9ec1-4627-9709-da3184f10f7d',
+   '57efad66-fb9e-4e89-8a92-846875c9148d',
+   '5e3c88d6-bb31-4183-95d9-57048e045c0b',
+   '6b42a81a-81e6-4c4c-bc4b-12c3edfe159a',
+   'a841e6db-bd44-4bb7-9f2f-58d089da7e06',
+   'bcb46735-2568-45e2-9028-114ab6adc10b',
+   'e7acddef-0822-44f3-a45b-3d51e63852fc',
+   'e8c881a1-ec58-48e6-946f-3c131d70ad34']}}
+
+
+col.data.update(uuid='5cff1941-39ef-41c3-860c-9f0ae4a73cf5',
+                references={'hasProfileAttribute': 'dd'})
+
+
+col.q('5cff1941-39ef-41c3-860c-9f0ae4a73cf5')
+
+
+to_load = {'uuid': '5cff1941-39ef-41c3-860c-9f0ae4a73cf5',
+ '<>hasProfileAttribute': ['19a5ee27-4733-46be-9e21-a9ad0422180e',
+  '4548ab99-9ec1-4627-9709-da3184f10f7d',
+  '57efad66-fb9e-4e89-8a92-846875c9148d',
+  '5e3c88d6-bb31-4183-95d9-57048e045c0b',
+  '6b42a81a-81e6-4c4c-bc4b-12c3edfe159a',
+  'a841e6db-bd44-4bb7-9f2f-58d089da7e06',
+  'bcb46735-2568-45e2-9028-114ab6adc10b',
+  'e7acddef-0822-44f3-a45b-3d51e63852fc',
+  'e8c881a1-ec58-48e6-946f-3c131d70ad34']}
+
+roommate_uuid=roommate.l(to_load, False)
+

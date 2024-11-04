@@ -3,8 +3,7 @@ import os
 import weakref
 from types import MethodType
 from itertools import zip_longest
-from rich.console import Console
-from rich.theme import Theme
+import weaviate
 from weaviate import WeaviateClient
 from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
@@ -13,16 +12,31 @@ from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_filter_c
 from full_metal_weaviate.utils import *
 from full_metal_weaviate.utils import is_clt_existing
 
-custom_theme = Theme({
-    "info": "dim cyan",
-    "warning": "magenta",
-    "error": "bold red"
-})
+def get_weaviate_client(connect_to_local=False):
+    weaviate_host = os.getenv('WEAVIATE_HTTP_HOST', 'localhost')
 
-console = Console(theme=custom_theme)
+    if connect_to_local:
+        weaviate_client = weaviate.connect_to_local()
+    else:
+        api_key_weaviate = os.getenv('WEAVIATE_API_KEY')
+        weaviate_client = WeaviateClient(
+        connection_params=ConnectionParams.from_params(
+            http_host=weaviate_host,
+            http_port="8080",
+            http_secure=False,
+            grpc_host=weaviate_host,
+            grpc_port="50051",
+            grpc_secure=False,
+        ),
+        auth_client_secret=AuthApiKey(api_key_weaviate))
 
-def get_metal_client(weaviate_client,opposite_refs=None):
+    weaviate_client.connect()
+    return weaviate_client
+
+def get_metal_client(weaviate_client=None,opposite_refs=None):
     try:
+        if weaviate_client == None:
+            weaviate_client = weaviate.connect_to_local()
         weaviate_client.get_metal_collection = MethodType(get_metal_collection, weaviate_client)
         weaviate_client.metal=MetalClientContext(weaviate_client)
         if opposite_refs != None:
@@ -93,18 +107,18 @@ def get_opp_clt(self,ref):
     opposite_clt=self.original_client().get_metal_collection(opposite_clt_name)
     return opposite_clt
 
-def get_opposite(self, key=None):
-    # try:
-        if key == None:
-            path=f'ref_target.{self.name}'
+def get_opposite(self, key=None, with_clt=False):
+    if key == None:
+        path=f'ref_target.{self.name}'
+    else:
+        if with_clt:
+            path=f'ref_target.{self.name}.{key}'
         else:
             path=f'ref_target.{self.name}.{key}.opposite'
-        opposite=jmespath.search(path, self.context)
-        if opposite == None:
-            raise NoOppositeException(key)
-        return opposite
-    # except MetalClientException:
-    #     pass
+    opposite=jmespath.search(path, self.context)
+    if opposite == None:
+        raise NoOppositeException(key)
+    return opposite
 
 def set_weaviate_context(client_weaviate):
     all_schema = client_weaviate.collections.list_all(simple=False)
@@ -116,7 +130,10 @@ def set_weaviate_context(client_weaviate):
     ref_target={k: {i.name:{'target_clt':i.target_collections[0]} for i in v.references} for k,v in all_schema.items()}
     return {'fields': fields, 'types': types, 'ref_target': ref_target}
 
-def register_opposite(self, ref_source, ref_target): 
+def register_opposite(self, ref_source, ref_target):
+    if ref_source not in self.refs:
+        console.print(f'[warning]{ref_source} not found in collection {self.name}, available refs: {self.refs}')
+        return
     ctx=self.context['ref_target']
     source=ctx[self.name][ref_source]
     source['opposite']=ref_target

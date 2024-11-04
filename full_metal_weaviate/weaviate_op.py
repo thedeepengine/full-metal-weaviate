@@ -23,6 +23,9 @@ from typing import Union
 from full_metal_monad import __
 from full_metal_weaviate.utils import *
 
+
+# global ___
+
 DEBUG=False
 
 custom_theme = Theme({
@@ -70,15 +73,17 @@ def metal_load(self,to_load,dry_run=True):
     #         rollback_transactions(objs,refs)
 
 def search_unique_ref_uuid(col, search_query):
-    try:
-        r=col.q(search_query)
-        if len(r) == 1:
-            return r[0]['uuid']
-        else:
-            raise NoUniqueUUIDException(search_query) 
-    except MetalClientException:
-        pass
-        # raise MetalClientException 
+    r=col.q(search_query)
+    if len(r) == 1:
+        return r[0]['uuid']
+    if len(r) == 0:
+        raise NoResultException(search_query, col)
+    else:
+        global ___
+        def f():
+            return col.q(search_query)
+        ___= f
+        raise NoUniqueUUIDException(search_query, col) 
 
 def field_meta(col,ref_name):
     is_ref=False;is_2_way=False;cleaned=None
@@ -99,18 +104,23 @@ def mix_resolver(col,to_load):
         temp_uuids.append(temp_uuid)
         for field in keys:
             is_ref,c_field,is_2_way=field_meta(col, field)
-            if not is_ref:
-                resolved.append
+            # if not is_ref:
+            #     resolved.append
             if is_ref:
                 opp_clt=col.metal.get_opp_clt(c_field)
                 listified = obj[field] if isinstance(obj[field], list) else [obj[field]]
+                temp_resolved = []
                 for i in listified:
                     if not is_uuid_valid(i):
-                        uuid=search_unique_ref_uuid(opp_clt,obj[field])
-                        obj[field]=uuid
+                        uuid=search_unique_ref_uuid(opp_clt,i)
+                        temp_resolved+=[uuid]
+                    else:
+                        temp_resolved+=[i]
+                obj[field]=temp_resolved
                 if is_2_way:
                     opp_field=col.metal.get_opposite(c_field)
-                    opp_refs.append({opp_clt.name:[obj[field], opp_field, temp_uuid]})
+                    for i in obj[field]:
+                        opp_refs.append({opp_clt.name:[i, opp_field, temp_uuid]})
                     obj[c_field]=obj.pop(field)
 
     return resolved,opp_refs,temp_uuids
@@ -122,7 +132,7 @@ def pure_ref_resolver(col, to_load):
         _,c_field,is_2_way=field_meta(col, item[1])
         opp_clt=col.metal.get_opp_clt(c_field)
         if not is_uuid_valid(item[0]):
-            uuid=search_unique_ref_uuid(opp_clt,item[0])
+            uuid=search_unique_ref_uuid(col,item[0])
             item[0]=uuid
         if not is_uuid_valid(item[2]):
             uuid=search_unique_ref_uuid(opp_clt,item[2])
@@ -198,19 +208,19 @@ def metal_query(self,
             if not return_raw:
                 res = extract_object(res)
             return res
-        except WeaviateQueryError as e:
+        except (WeaviateQueryError) as e:
             match = re.search(r"no such prop with name '(\w+)' found in class '(\w+)'", str(e))
+            
             if match:
                 prop_name = match.group(1)
                 class_name = match.group(2)
                 raise MetalWeaviateQueryError(prop_name, class_name) from None
             else:
-                raise WeaviateQueryError
+                raise WeaviateQueryError(e.message, e.protocol_type)
     except MetalClientException:
         if DEBUG:
             console.print_exception(show_locals=True)
         pass
-        # raise MetalClientException
 
 def rollback_transactions(col,objs,refs):
     if objs:
@@ -349,21 +359,21 @@ def batch_load_object(clt,objs,dry_run=True):
 def batch_update_object(clt,to_update,dry_run):
     uuids = []
     if len(to_update) > 0:
+        for obj in to_update:
+            fields = {'uuid': 'uuid', 'prop': 'properties', 'ref': 'references', 'vector': 'vector'}
+            params = {value: obj.get(key) 
+                    for key, value in fields.items() 
+                    if obj.get(key) is not None and len(obj.get(key))>0}
+
+            if params:
+                if dry_run == False: 
+                    clt.data.update(**params)
+                uuids.append(obj.get('uuid'))
         if dry_run:
             console.print('to_update', len(to_update))
             if not hasattr(clt.metal, 'run'):
                 clt.metal.run = {}
             clt.metal.run['to_udpate'] = [i.get('uuid') for i in to_update]
-        else:
-            for obj in to_update:
-                fields = {'uuid': 'uuid', 'prop': 'properties', 'ref': 'references', 'vector': 'vector'}
-                params = {value: obj.get(key) 
-                        for key, value in fields.items() 
-                        if obj.get(key) is not None and len(obj.get(key))>0}
-
-                if params:
-                    clt.data.update(**params)
-                uuids.append(obj.get('uuid'))
     return uuids
 
 def batch_load_references(clt, refs, dry_run=True):
@@ -506,36 +516,20 @@ def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
             else:
                 raise Exception(f'property {prop_split[0]} does not exist, exsiting props: {prop_names}')
     elif len(prop_split) > 1:
-        def ref_naming_checker(col,chain_split):
-            assert chain_split[0] in col.metal.refs, f'{chain_split[0]} not in available reference fields: {col.metal.refs}'
-            target_clt=__(col.metal.context).get(f'ref_target.{col.name}.{chain_split[0]}.target_clt')
-            target_fields=__(col.metal.context).get(f'fields.{target_clt}')
-
-            for i,v in enumerate(chain_split[1:]):
-                if i == len(chain_split[1:])-1:
-                    assert v in target_fields['properties'], f'{v} not in available property fields {target_fields["properties"]}'
-                else:
-                    target_clt=__(col.metal.context).get(f'ref_target.{col.name}.{v}.target_clt')
-                    target_fields=__(col.metal.context).get(f'fields.{target_clt}')
-                    fields = target_fields['properties']+target_fields['references']
-                    assert v in fields, f'{v} not in available reference fields {fields}'
-
         refs,prop=prop_split[:-1], prop_split[-1]
+        last_clt=col.name
         for i in refs:
             w_filter = w_filter.by_ref(link_on=i)
+            last_clt=col.metal.context['ref_target'][last_clt][i]['target_clt']
         if prop == 'uuid':
             w_filter = w_filter.by_id()
         else:
+            last_clt_properties=col.metal.context['fields'][last_clt]['properties']
+            print(last_clt_properties)
+            if prop not in last_clt_properties:
+                raise FMWParseReturnException(prop)
+                # raise FieldNotFoundException(prop, prop_names, col.name, extra='An attribute is required after a reference as in hasProperty.name=value')
             w_filter = w_filter.by_property(prop)
-        #     else:
-        #         raise
-        # except Exception as e:
-        #     missing_ref = [i for i in refs if i not in ref_names]
-        #     missing_prop = [i for i in prop_names+['uuid'] if i not in prop_names+['uuid']]
-        #     # Exception(f'check_refs: {check_refs}, check_prop: {check_prop}')
-        #     if missing_ref: console.print(f'[bold magenta]Not found ref:[/] {missing_ref}')
-        #     if missing_prop: console.print(f'[bold magenta]Not found prop:[/] {missing_prop}')
-        #     console.print_exception(show_locals=True)
 
     w_filter = getattr(w_filter, OPERATORS[op_symbol])
 
