@@ -16,16 +16,16 @@ You can either load some [sample data](#test-with-sample-data) and test on this 
 
 ## Test with sample data
 
-Running the function `sample_data` will create 3 collections to poke around with:
+Running the function `get_sample_data` will create 3 collections to poke around with:
 
 
 ```python
-from full_metal_weaviate import sample_data, get_metal_client
+from full_metal_weaviate import get_sample_data, get_metal_client
 
 client_weaviate = <your weaviate client>
 
 # this will create collections and load sample data
-sample_data(client_weaviate)
+get_sample_data(client_weaviate)
 
 # get metal client and collections
 client_metal = get_metal_client(client_weaviate)

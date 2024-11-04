@@ -10,28 +10,6 @@ from weaviate.auth import AuthApiKey
 from full_metal_monad import __, safe_jmes_search
 from full_metal_weaviate.weaviate_op import metal_query,metal_load, get_filter_compiler, get_return_field_compiler
 from full_metal_weaviate.utils import *
-from full_metal_weaviate.utils import is_clt_existing
-
-def get_weaviate_client(connect_to_local=False):
-    weaviate_host = os.getenv('WEAVIATE_HTTP_HOST', 'localhost')
-
-    if connect_to_local:
-        weaviate_client = weaviate.connect_to_local()
-    else:
-        api_key_weaviate = os.getenv('WEAVIATE_API_KEY')
-        weaviate_client = WeaviateClient(
-        connection_params=ConnectionParams.from_params(
-            http_host=weaviate_host,
-            http_port="8080",
-            http_secure=False,
-            grpc_host=weaviate_host,
-            grpc_port="50051",
-            grpc_secure=False,
-        ),
-        auth_client_secret=AuthApiKey(api_key_weaviate))
-
-    weaviate_client.connect()
-    return weaviate_client
 
 def get_metal_client(weaviate_client=None,opposite_refs=None):
     try:
@@ -140,6 +118,25 @@ def register_opposite(self, ref_source, ref_target):
     target_clt_name=source['target_clt']
     ctx[target_clt_name][ref_target]['opposite']=ref_source
 
+def get_weaviate_client(connect_to_local=False):
+    weaviate_host = os.getenv('WEAVIATE_HTTP_HOST', 'localhost')
 
+    if connect_to_local:
+        weaviate_client = weaviate.connect_to_local()
+    else:
+        api_key_weaviate = os.getenv('WEAVIATE_API_KEY')
+        weaviate_client = WeaviateClient(
+        connection_params=ConnectionParams.from_params(
+            http_host=weaviate_host,
+            http_port="8080",
+            http_secure=False,
+            grpc_host=weaviate_host,
+            grpc_port="50051",
+            grpc_secure=False,
+        ),
+        auth_client_secret=AuthApiKey(api_key_weaviate))
+
+    weaviate_client.connect()
+    return weaviate_client
 
 go_metal = get_metal_collection

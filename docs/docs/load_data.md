@@ -15,7 +15,7 @@ Get your metal client and some collections:
 client_weaviate=<your weaviate client>
 
 # if you haven't yet created the sample testing dataset run:
-# sample_data(client_weaviate)
+# get_sample_data(client_weaviate)
 
 # get metal client and collections
 client_metal=get_metal_client(client_weaviate)
