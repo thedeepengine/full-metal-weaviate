@@ -83,6 +83,12 @@ For example:
 
 When loading references, you can provide a query rather than a uuid. If the query returns a single item, the reference will be loaded, if not it raises an exception:
 
+### Limitation/next steps/things that needs to change
+
+- Does not handle tenants yet
+- Currently this library is monkey patching Weaviate, should be handled with proper class inheritance or something
+- Not handling near_vector queries and other hybrid search, it might be nice to handle this as well
+
 ### Disclaimer
 
 Full Metal Weaviate is currently in alpha and under active development. It is not recommended for production use as it may contain bugs, incomplete features, and can undergo significant changes. Use at your own risk.
