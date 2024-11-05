@@ -31,7 +31,7 @@ collection.metal_load([<uuid_source>,"<>yourRef",<uuid_target>])
 
 It turn this search query:
 
-```
+```python
 response = collection.query.fetch_objects(
     filters=Filter.by_ref(link_on="hasChildren").by_ref(link_on="hasProperty").by_property('name').equal(name_value),
     return_references=[
@@ -46,13 +46,13 @@ response = collection.query.fetch_objects(
 
 into this one-liner:
 
-```
+```python
 response = collection.query('hasChildren.hasProperty.name=name_value', 'hasChildren.hasProperty.name')
 ```
 
 ## Installation
 
-```
+```bash
 pip install git+https://github.com/thedeepengine/full-metal-weaviate.git
 ```
 
