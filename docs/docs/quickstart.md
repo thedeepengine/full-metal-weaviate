@@ -6,6 +6,10 @@ sidebar_position: 2
 
 Full Metal Weaviate allows you to use a minimalistic syntax to query and load data into Weaviate.
 
+:::info
+There is no much doc yet about functions so `help(function_name)` in your terminal is probably one of your best friend if any doc exist, or feel free to deep dive into the code.
+:::
+
 ## Installation
 
 ```
