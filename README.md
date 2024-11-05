@@ -4,7 +4,7 @@
 
 High level wrapper for Weaviate: iterate faster while reducing boilerplate. 
 
-Full Metal Weaviate propose two basic boilerplate-free intuitive functions:
+Full Metal Weaviate proposes two basic boilerplate-free intuitive functions:
 
 `.metal_query` and `.metal_load` (aliased as `.q` and `.l`)
 
@@ -13,7 +13,7 @@ Full Metal Weaviate propose two basic boilerplate-free intuitive functions:
 `.l` makes it easy to load your data.
 
 
-It turn this search query:
+It turns this search query:
 
 ```
 response = jeopardy.query.fetch_objects(
@@ -33,7 +33,7 @@ into this one-liner:
 response = jeopardy.query('round=Double Jeopardy', 'hasCategory.title')
 ```
 
-or this (2 way cross-references loading):
+or this (two-way cross-references loading):
 
 ```
 category = client.collections.get("JeopardyCategory")
@@ -70,6 +70,12 @@ The library automatically picks up the registered opposite relationships and cre
 pip install git+https://github.com/thedeepengine/full-metal-weaviate.git
 ```
 
+## Documentation
+
+https://thedeepengine.github.io/full-metal-weaviate/docs/quickstart/
+
+## Example return fields
+
 Along with querying and loading, fmw provide a simplified way to get your returned fields, as its less verbose and reduced to a minimal syntax:
 
 For example:
@@ -77,7 +83,7 @@ For example:
 - return field attributes: `name,desc`
 - return field and references: `name,desc,hasRef1:name,hasRef2:name,desc`
 - return field vector along with classic fields: `name,desc,vector`
-- return named vector along: `name,desc,vector:vectorname`
+- return named vector along with: `name,desc,vector:vectorname`
 - return field along with deeply nested ref: `name,hasRef1.hasRef3:name)` or `name,hasRef1>(hasRef3:name)`
 - return named vector of reference: `name,hasRef1:name,vector:vector_name`
 
@@ -85,7 +91,7 @@ For example:
 
 When loading references, you can provide a query rather than a uuid. If the query returns a single item, the reference will be loaded, if not it raises an exception:
 
-### Limitation/next steps/things that needs to change
+### Limitation/next steps/things that need to change
 
 - Does not handle tenants yet
 - Currently this library is monkey patching Weaviate, should be handled with proper class inheritance or something
