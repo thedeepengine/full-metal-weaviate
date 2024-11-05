@@ -1,5 +1,7 @@
 # Full Metal Weaviate
 
+[![Weaviate](https://img.shields.io/static/v1?label=Built%20with&message=Weaviate&color=green&style=flat-square)](https://weaviate.io/)
+
 High level wrapper for Weaviate: iterate faster while reducing boilerplate. 
 
 Full Metal Weaviate propose two basic boilerplate-free intuitive functions:
