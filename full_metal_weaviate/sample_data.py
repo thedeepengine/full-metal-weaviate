@@ -27,7 +27,7 @@ def create_sample_collection(client,
     existing_clt = [i for i in clt_names 
                      if client.collections.exists(i)]
     if existing_clt:
-        console(f'[warning]Warning: Collections {existing_clt} already exist. Delete or change sample data collection name parameters name')
+        console.print(f'[warning]Warning: Collections {existing_clt} already exist. Delete or change sample data collection name parameters.')
         return
          
     Technology = client.collections.create(

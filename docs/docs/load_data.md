@@ -12,15 +12,15 @@ The loading part of this library is not the most useful one excepted maybe for t
 Get your metal client and some collections:
 
 ```python
-client_weaviate=<your weaviate client>
+weaviate_client=<your weaviate client>
 
 # if you haven't yet created the sample testing dataset run:
-# get_sample_data(client_weaviate)
+# get_sample_data(weaviate_client)
 
 # get metal client and collections
-client_metal=get_metal_client(client_weaviate)
+client_metal=get_metal_client(weaviate_client)
 technology=client_metal.get_metal_collection('Technology')
-technology_property=client_metal.get_metal_collection('technology_property')
+technology_property=client_metal.get_metal_collection('TechnologyProperty')
 contributor=client_metal.get_metal_collection('Contributor')
 ```
 ## Load simple attribute
@@ -52,13 +52,9 @@ uuid=technology.metal_load(to_load, False)
 Provide a dict with the fields and values, again you can provide a list of objects to load multiples objects, you'd have a list of uuids returned:
 
 ```python
-to_load=[{'question': 'who?', 'hasCategory': uuid}]
-
-technology_property=client_metal.get_metal_collection('technology_property')
+technology_property=client_metal.get_metal_collection('TechnologyProperty')
 uuid_target=technology_property.metal_load({'name': 'Hybrid Search'}, False)
-
-to_load={'question': 'who?', 'hasProperty': uuid_target}
-
+to_load={'name': 'super_db', 'hasProperty': uuid_target}
 technology.metal_load(to_load, False)
 ```
 
@@ -68,7 +64,7 @@ Rather than first fetching the uuid and then loading your ref, you can directly 
 ## Load simple attributes and unresolved references
 
 ```python
-to_load={'question': 'who?', 'hasProperty': 'name=Hybrid Search'}
+to_load={'name': 'milvus', 'hasProperty': 'name=Hybrid Search'}
 technology.metal_load(to_load, False)
 ```
 
@@ -143,3 +139,6 @@ uuid_milvus = milvus[0]['uuid']
 technology.metal_load({'uuid': uuid_milvus, 'description': 'open-source vector database'}, False)
 ```
 
+```
+technology.q('name=milvus', 'description')
+```

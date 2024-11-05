@@ -4,6 +4,7 @@ from types import FunctionType
 import pandas as pd
 import copy
 import random
+import uuid
 from collections import defaultdict
 from rich.console import Console
 from rich.traceback import install
@@ -270,7 +271,7 @@ def delete_opposite_refs(clt,target_uuid, rel, dry_run=True):
 def check_format(col,to_load):
     if isinstance(to_load, dict):
         to_load = [to_load]
-    if isinstance(to_load, list) and isinstance(to_load[0], str):
+    if isinstance(to_load, list) and (isinstance(to_load[0], str) or isinstance(to_load[0], uuid.UUID)):
         to_load = [to_load]
 
     allowed_fields = col.metal.props+col.metal.refs+['vector', 'uuid']

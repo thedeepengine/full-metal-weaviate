@@ -22,7 +22,7 @@ pip install git+https://github.com/thedeepengine/full-metal-weaviate.git
 import weaviate
 from full_metal_weaviate import get_metal_client
 
-weaviate_client = weaviate.connect_to_local()
+weaviate_client = '<your_weaviate_client>'
 metal_client = get_metal_client(weaviate_client)
 ```
 
@@ -31,7 +31,7 @@ metal_client = get_metal_client(weaviate_client)
 From a metal client, you can get a metal collection.
 
 ```python
-collectionName = metal_client.get_metal_collection('<your_collection_name>')
+collection_name = metal_client.get_metal_collection('<your_collection_name>')
 ```
 
 From now on you can **[query](query_data.md)** and **[load](load_data.md)** data using `.metal_query` and `.metal_load` methods.
@@ -48,8 +48,8 @@ For example:
 if `hasCategory` is the opposite of `questionOf` and `hasAssociatedQuestion` the opposite of `associatedQuestionOf`
 
 ```python
-JeopardyQuestion.metal.register_opposite('hasCategory', 'questionOf')
-JeopardyQuestion.metal.register_opposite('hasAssociatedQuestion', 'associatedQuestionOf')
+jeopardyQuestion.metal.register_opposite('hasCategory', 'questionOf')
+jeopardyQuestion.metal.register_opposite('hasAssociatedQuestion', 'associatedQuestionOf')
 ```
 
 You only have to register the opposite relationship for one collection only, the system associate the opposite with the collection using your weaviate schema.

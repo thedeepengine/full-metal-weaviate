@@ -20,25 +20,25 @@ Running the function `get_sample_data` will create 3 collections to poke around 
 
 
 ```python
-from full_metal_weaviate import get_sample_data, get_metal_client
-
-client_weaviate = <your weaviate client>
+from full_metal_weaviate import get_metal_client
+from full_metal_weaviate.sample_data import get_sample_data
+weaviate_client = <your weaviate client>
 
 # this will create collections and load sample data
-get_sample_data(client_weaviate)
+get_sample_data(weaviate_client)
 
 # get metal client and collections
-client_metal = get_metal_client(client_weaviate)
-Technology = client_metal.get_metal_collection('Technology')
-TechnologyProperty = client_metal.get_metal_collection('TechnologyProperty')
-Contributor = client_metal.get_metal_collection('Contributor')
+client_metal = get_metal_client(weaviate_client)
+technology = client_metal.get_metal_collection('Technology')
+technology_property = client_metal.get_metal_collection('TechnologyProperty')
+contributor = client_metal.get_metal_collection('Contributor')
 ```
 
 Start querying with a simple syntax:
 
 ```
 # Filter on tech with name weaviate
-Technology.metal_query('name = weaviate')
+technology.metal_query('name = weaviate')
 ```
 
 <details>
@@ -62,7 +62,7 @@ Filter on tech with name weaviate and returns only the name attribute and hasPro
 First parameter is the filtering, second parameter the return field.
 
 ```python
-Technology.metal_query('name = weaviate','name,hasProperty:name')
+technology.metal_query('name = weaviate','name,hasProperty:name')
 ```
 
 The equivalent in classic graphql syntax would be:
@@ -93,12 +93,15 @@ The equivalent in classic graphql syntax would be:
 Here you filter on a deeply nested reference just using dot notation:
 
 ```
-Technology.q('hasProperty.hasCategory.name  =  adaptability', 'name,hasProperty.hasCategory:name')
+technology.q('hasProperty.hasCategory.name = adaptability', 'name,hasProperty.hasCategory:name')
 ```
+
 Weaviate equivalent:
 
 ```
-Technology.query.fetch_objects(
+from weaviate.classes.query import Filter, QueryReference
+
+technology.query.fetch_objects(
     filters = Filter.by_ref(link_on = "hasProperty").by_ref(link_on = "hasCategory").by_property("name").equal("adaptability"),
     return_properties = 'name',
     return_references = QueryReference(link_on = "hasProperty", return_properties = ["name"])

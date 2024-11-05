@@ -10,152 +10,14 @@ from weaviate.connect import ConnectionParams
 from weaviate.auth import AuthApiKey
 from dataclasses import dataclass
 
-from full_metal_weaviate.weaviate_op import (get_filter_compiler, parse_filter, get_return_field_compiler, get_weaviate_return_fields, get_translate_filter)
+from full_metal_weaviate.weaviate_op import (get_filter_compiler, parse_filter, get_return_field_compiler, get_weaviate_return_fields, get_translate_filter, parse_return_field)
 from full_metal_weaviate.utils import MetalClientException, console
+from full_metal_weaviate.sample_data import create_sample_collection
 
 TECH_CLT = 'Technology'
 CONTRIB_CLT = 'Contributor'
-TECH_PROP_CLT = 'TechnologyProperty'
+TECH_PROP_CLT = 'technology_property'
 PROP_CATEGORY_CLT = 'PropertyCategory'
-
-########################################
-## create collection
-########################################
-
-def delete_sample_data(client):
-    client.collections.delete(TECH_CLT)
-    client.collections.delete(CONTRIB_CLT)
-    client.collections.delete(TECH_PROP_CLT)
-    client.collections.delete(PROP_CATEGORY_CLT)
-
-def create_sample_collection(client, 
-                tech_clt=TECH_CLT, 
-                contrib_clt=CONTRIB_CLT, 
-                tech_prop_clt=TECH_PROP_CLT,
-                prop_category_clt=PROP_CATEGORY_CLT):
-    clt_names=[tech_clt, contrib_clt, tech_prop_clt, prop_category_clt]
-    existing_clt = [i for i in clt_names 
-                     if client_weaviate.collections.exists(i)]
-    if existing_clt:
-        print(f'Warning: Collections {existing_clt} already exist. Delete or change sample data collection name parameters name')
-        return
-         
-    Technology = client.collections.create(
-        name=tech_clt,
-        properties=[
-            Property(name="name", data_type=DataType.TEXT, tokenization= Tokenization.FIELD),
-            Property(name="description", data_type=DataType.TEXT),
-            Property(name="github", data_type=DataType.TEXT),
-            Property(name="nb_stars", data_type=DataType.INT),
-            Property(name="release_date", data_type=DataType.DATE),
-            Property(name="number_field", data_type=DataType.NUMBER),
-        ],
-        vectorizer_config=[Configure.NamedVectors.none(name="vect_field")]
-    )
-
-    TechnologyProperty = client.collections.create(
-        name=tech_prop_clt,
-        properties=[
-            Property(name="name", data_type=DataType.TEXT),
-            Property(name="description", data_type=DataType.TEXT)
-        ]
-    )
-
-    PropertyCategory = client.collections.create(
-        name=prop_category_clt,
-        properties=[
-            Property(name="name", data_type=DataType.TEXT),
-            Property(name="description", data_type=DataType.TEXT),
-            Property(name="coolness", data_type=DataType.TEXT_ARRAY)
-        ]
-    )
-
-    Contributor = client.collections.create(
-        name=contrib_clt,
-        properties=[
-            Property(name="name", data_type=DataType.TEXT)
-        ]
-    )
-
-    Technology.config.add_reference(ReferenceProperty(name="hasProperty",target_collection=tech_prop_clt))
-    TechnologyProperty.config.add_reference(ReferenceProperty(name="propertyOf",target_collection=tech_clt))
-
-    Technology.config.add_reference(ReferenceProperty(name="hasContributor",target_collection=contrib_clt))
-    Contributor.config.add_reference(ReferenceProperty(name="contributorOf",target_collection=tech_clt))
-
-    TechnologyProperty.config.add_reference(ReferenceProperty(name="hasCategory",target_collection=prop_category_clt))
-    PropertyCategory.config.add_reference(ReferenceProperty(name="categoryOf",target_collection=tech_prop_clt))
-
-    existing_clt = all([client_weaviate.collections.exists(i) for i in clt_names])
-    if existing_clt:
-        console.print(f'[info]Sample collections created')
-        return True
-    else:
-        console.print(f'[error]Sample Collections not created')
-        return False
-
-def get_clt():
-    client_weaviate=get_weaviate_client(True)
-    client_metal=get_metal_client(client_weaviate)
-    Technology=client_metal.get_metal_collection(TECH_CLT)
-    TechnologyProperty=client_metal.get_metal_collection(TECH_PROP_CLT)
-    PropertyCategory=client_metal.get_metal_collection(PROP_CATEGORY_CLT)
-    Contributor=client_metal.get_metal_collection(CONTRIB_CLT)
-
-def get_sample_data(client):
-    created=create_sample_collection(client)
-    if created:
-        metal_client=get_metal_client(client)
-        load_sample_data(metal_client)
-        
-##################################################
-############ get_collection
-##################################################
-
-def load_sample_data(metal_client):
-    Technology=metal_client.get_metal_collection(TECH_CLT)
-    TechnologyProperty=metal_client.get_metal_collection(TECH_PROP_CLT)
-    TechnologyCategory=metal_client.get_metal_collection(PROP_CATEGORY_CLT)
-    Contributor=metal_client.get_metal_collection(CONTRIB_CLT)
-
-    Technology.metal.register_opposite('hasProperty', 'propertyOf')
-    Technology.metal.register_opposite('hasContributor', 'contributorOf')
-    TechnologyCategory.metal.register_opposite('categoryOf', 'hasCategory')
-    
-    TechnologyProperty.l([{'name': 'PQ', 
-                            'description': 'Product Quantization Reduces index footprint'},
-                            {'name': 'Flat Index', 
-                            'description': 'Lightweight index that is designed for small datasets'},
-                            {'name': 'HNSW', 
-                            'description': 'Index that scales well to large datasets'},
-                            {'name': 'Dynamic Index', 
-                            'description': 'Automatically switch from a flat index to an HNSW index'},
-                            {'name': 'Annoy', 
-                            'description': 'Approximate Nearest Neighbors Oh Yeah, uses random forest, ideal for large datasets'},
-                            {'name': 'IVF', 
-                            'description': 'partitions data into clusters and creates an inverted index for efficient nearest neighbor search'},
-                            {'name': 'LSH', 
-                            'description': 'Locality-Sensitive Hashing, hashes high-dimensional data points into buckets'}], False)
-
-    Contributor.l([{'name': 'dirkkul'},{'name': 'tsmith023'}], False)
-
-
-    TechnologyCategory.l([{'name': 'performance', '<>categoryOf':['name=HNSW']},
-                          {'name': 'efficiency', '<>categoryOf':['name=PQ', 'name=Annoy', 'name=IVF']},
-                          {'name': 'adaptability', '<>categoryOf': ['name=Dynamic Index']},
-                          {'name': 'accuracy', '<>categoryOf': ['name=Flat Index']}], 
-                          False)
-
-    Technology.l([{'name':'weaviate',
-                    '<>hasProperty': ['name=HNSW', 'name=Dynamic Index', 'name=PQ', 'name=Flat Index'],
-                    'hasContributor': ['name=dirkkul', 'name=tsmith023']}, 
-                    {'name': 'pinecone',
-                    '<>hasProperty': ['name=HNSW', 'name=PQ', 'name=Annoy']}, 
-                    {'name':'milvus',
-                    '<>hasProperty': ['name=HNSW', 'name=PQ', 'name=Annoy']},
-                    {'name':'faiss',
-                    '<>hasProperty': ['name=HNSW', 'name=IVF', 'name=PQ', 'name=LSH']}], False)
-    console.print(f'[info]Sample data loaded')
 
 ##################################################
 ############ parse_filter
@@ -246,8 +108,6 @@ def record_get_translate_filter(to_test):
 
 tested=record_get_translate_filter(to_test)
 
-# parse_filter(compiler, '11111111-1111-1111-1111-111111111111')
-
 #############################################
 ############ return fields
 #############################################
@@ -317,8 +177,6 @@ return_field_instance=[
 
 to_test = [return_field_data(i[0], i[1]) for i in return_field_instance]
 
-i=return_field_data('wrong syntax','name=value')
-
 def record_parse_return_field(to_test):
     compiler=get_return_field_compiler()
     to_test=copy.deepcopy(to_test)
@@ -352,13 +210,12 @@ tested=record_get_weaviate_return_fields(to_test)
 #############################################
 
 #! load simple attribute
-to_load=[{'text_field': 'test'}]
-uuid=Technology.metal_load(to_load, False)
-Technology.metal_query(uuid[0])
-
+to_load=[{'name': 'test'}]
+uuid=technology.metal_load(to_load, False)
+technology.metal_query(uuid[0])
 
 #! load mix attributes and references
-uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__0001'}, False)[0]
+uuid_target=technology_property.metal_load({'text_field_clt2': 'test__0001'}, False)[0]
 uuid1=Technology.metal_load({'text_field': 'w1','hasProperty': uuid_target}, False)
 
 Technology.metal_query(uuid1[0])
@@ -366,8 +223,8 @@ Technology.metal_query(uuid1[0], 'hasProperty:text_field_clt2')
 
 
 #! load mix attributes and multiple references
-uuid_target1=TechnologyProperty.metal_load({'text_field_clt2': 'test__0001'}, False)[0]
-uuid_target2=TechnologyProperty.metal_load({'text_field_clt2': 'test__0001'}, False)[0]
+uuid_target1=technology_property.metal_load({'text_field_clt2': 'test__0001'}, False)[0]
+uuid_target2=technology_property.metal_load({'text_field_clt2': 'test__0001'}, False)[0]
 uuid1=Technology.metal_load({'text_field': 'w1','hasProperty': [uuid_target1, uuid_target2]}, False)
 
 Technology.metal_query(uuid1[0])
@@ -377,7 +234,7 @@ Technology.metal_query(uuid1[0], 'hasProperty:text_field_clt2')
 
 ## using array format
 uuid_source=str(Technology.metal_load({'text_field': 'test__0001'}, False)[0])
-uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
+uuid_target=technology_property.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
 
 to_load=[[uuid_source,'hasProperty',uuid_target]]
 Technology.l(to_load, False)
@@ -386,7 +243,7 @@ Technology.q(uuid_source, 'hasProperty:text_field_clt2')
 
 ## using dict format
 uuid_source=str(Technology.metal_load({'text_field': 'test__0001'}, False)[0])
-uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
+uuid_target=technology_property.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
 
 to_load=[{'from_uuid': uuid_source, 'from_property':'hasProperty', 'to':uuid_target}]
 Technology.l(to_load, False)
@@ -395,18 +252,18 @@ Technology.q(uuid_source, 'hasProperty:text_field_clt2')
 
 ## load 2 way references
 uuid_source=Technology.metal_load({'text_field': 'test__0001'}, False)[0]
-uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
+uuid_target=technology_property.metal_load({'text_field_clt2': 'test__0002'}, False)[0]
 to_load=[{'from_uuid': uuid_source, 'from_property':'<>hasProperty', 'to':uuid_target}]
 
 Technology.l(to_load, False)
 
 Technology.q(uuid_source, 'hasProperty:text_field')
-TechnologyProperty.q(uuid_target, 'propertyOf:text_field')
+technology_property.q(uuid_target, 'propertyOf:text_field')
 
 # load unresolved refs
 
 ## for mix ref
-uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__123456'}, False)[0]
+uuid_target=technology_property.metal_load({'text_field_clt2': 'test__123456'}, False)[0]
 
 uuid_source=Technology.metal_load({'text_field': 'w1',
                        'hasProperty': 'text_field_clt2=test__123456'}, False)
@@ -414,8 +271,8 @@ uuid_source=Technology.metal_load({'text_field': 'w1',
 Technology.q(uuid_source, 'propertyOf:text_field')
 
 ## for mix ref with multiple unresolved refs
-uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__123456'}, False)[0]
-uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__891'}, False)[0]
+uuid_target=technology_property.metal_load({'text_field_clt2': 'test__123456'}, False)[0]
+uuid_target=technology_property.metal_load({'text_field_clt2': 'test__891'}, False)[0]
 
 uuid_source=Technology.metal_load({'text_field': 'w1',
                        'hasProperty': ['text_field_clt2=test__123456', 'text_field_clt2=test__891']}, False)
@@ -424,7 +281,7 @@ Technology.q(uuid_source, 'propertyOf:text_field')
 
 ## for pure refeference
 uuid_source=Technology.metal_load({'text_field': 'test__0001'}, False)[0]
-uuid_target=TechnologyProperty.metal_load({'text_field_clt2': 'test__pure_ref'}, False)[0]
+uuid_target=technology_property.metal_load({'text_field_clt2': 'test__pure_ref'}, False)[0]
 
 q='text_field_clt2=test__pure_ref'
 
@@ -433,7 +290,7 @@ to_load=[{'from_uuid': uuid_source, 'from_property':'<>hasProperty', 'to': q}]
 Technology.l(to_load, False)
 
 Technology.q(uuid_source, 'hasProperty:text_field_clt2')
-TechnologyProperty.q(uuid_target, 'propertyOf:text_field')
+technology_property.q(uuid_target, 'propertyOf:text_field')
 
 
 Technology.q(uuid_target, 'propertyOf:text_field')
