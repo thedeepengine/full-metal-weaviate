@@ -47,7 +47,7 @@ response = collection.query.fetch_objects(
 into this one-liner:
 
 ```python
-response = collection.query('hasChildren.hasProperty.name=name_value', 'hasChildren.hasProperty:name')
+response = collection.metal_query('hasChildren.hasProperty.name=name_value', 'hasChildren.hasProperty:name')
 ```
 
 ## Installation
