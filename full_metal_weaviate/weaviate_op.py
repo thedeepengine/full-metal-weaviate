@@ -11,6 +11,9 @@ from rich.traceback import install
 from rich.theme import Theme
 from rich.table import Table
 from datetime import datetime
+from dateutil import parser
+from datetime import datetime, timezone
+
 from weaviate.exceptions import WeaviateQueryError
 from weaviate.classes.query import MetadataQuery, Filter, QueryReference
 from weaviate.exceptions import WeaviateBaseError
@@ -75,10 +78,10 @@ def metal_load(self,to_load,dry_run=True):
 
 def search_unique_ref_uuid(col, search_query):
     r=col.q(search_query)
+    if r == None or (r != None and len(r) == 0):
+        raise NoResultException(search_query, col)
     if len(r) == 1:
         return r[0]['uuid']
-    if len(r) == 0:
-        raise NoResultException(search_query, col)
     else:
         global ___
         def f():
@@ -504,6 +507,7 @@ def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
     prop_names, ref_names = col.metal.props, col.metal.refs
     w_filter=Filter
     prop_split=prop.split('.')
+    last_clt=col.name
     if len(prop_split) == 1:
         if prop_split[0] in prop_names+['uuid']:
             prop_split = prop_split[0]
@@ -518,7 +522,6 @@ def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
                 raise Exception(f'property {prop_split[0]} does not exist, exsiting props: {prop_names}')
     elif len(prop_split) > 1:
         refs,prop=prop_split[:-1], prop_split[-1]
-        last_clt=col.name
         for i in refs:
             w_filter = w_filter.by_ref(link_on=i)
             last_clt=col.metal.context['ref_target'][last_clt][i]['target_clt']
@@ -534,11 +537,18 @@ def get_atomic_weaviate_filter(col, prop, op_symbol, value, context={}):
 
     w_filter = getattr(w_filter, OPERATORS[op_symbol])
 
-    if __(col.metal.context).get(f'types.{col.name}.{prop}').__ == 'NUMBER':
+    prop_type=__(col.metal.context).get(f'types.{last_clt}.{prop}').__
+    if prop_type == 'NUMBER':
         try:
             value=float(value)
-        except Exception as e:
-            f'{prop} should be a NUMBER'
+        except ValueError:
+            raise TypeCantBeParsedException(prop, value, 'NUMBER')
+    if prop_type == 'DATE':
+            try:
+                dt = parser.parse(value)
+                value=dt.astimezone(timezone.utc).replace(tzinfo=timezone.utc)
+            except ValueError:
+                raise TypeCantBeParsedException(prop, value, 'DATE')
     w_filter = w_filter(value)
     return w_filter
 
@@ -638,6 +648,8 @@ def recurse(parsed_data, res=None):
         nested_ref = nested[0]['reference']
         if ':' not in nested_ref:
             nested_ref+=':'
+        if not nested_ref.endswith(':'):
+            nested_ref+=','
         nested_ref+=','.join(prop2)
         vec=[i for i in ref2 if i.startswith('vector')]
         if len(vec) > 0:
@@ -649,7 +661,16 @@ def recurse(parsed_data, res=None):
                 raise e
 
         nested = atomic_return_ref(nested_ref, include_vector)
-        nested.return_references = [atomic_return_ref(i) for i in ref2]
+        
+        def set_last_ref(w_ref, last_ref):
+            if w_ref.return_references != None:
+                set_last_ref(w_ref.return_references, last_ref)
+            else:
+                w_ref.return_references=last_ref
+            return w_ref
+        
+        last_ref=set_last_ref(nested, [atomic_return_ref(i) for i in ref2])
+        # nested.return_references = [atomic_return_ref(i) for i in ref2]
 
     for i in ref:
         res.append(atomic_return_ref(i))

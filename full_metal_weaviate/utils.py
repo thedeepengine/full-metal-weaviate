@@ -87,6 +87,14 @@ class MoreThanOneCollectionException(MetalClientException):
         self.name = name
         console.print(f'❗Ambiguity to resolve more than one collection: {name}')
 
+class TypeCantBeParsedException(MetalClientException):
+    def __init__(self, prop, value, value_type):
+        super().__init__()
+        self.name = prop
+        self.value = value
+        self.value_type = value_type
+        console.print(f'❗Property {prop} with value {value} cannot be parsed to {value_type}')
+
 class NoCollectionException(MetalClientException):
     def __init__(self, name=''):
         super().__init__()
